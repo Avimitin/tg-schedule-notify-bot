@@ -13,8 +13,10 @@ stateDiagram-v2
 
 [*] --> Bot
 Bot --> Message: receive
-Message --> TypeFilter
-TypeFilter --> [*]: IsMessage
+Message --> GroupAuth
+GroupAuth --> [*]: Not in whitelist
+GroupAuth --> TypeFilter
+TypeFilter --> [*]: IsText
 TypeFilter --> Auth: IsCommand
 Auth --> [*]: IsUser
 Auth --> CommandHandler: IsAdmin
