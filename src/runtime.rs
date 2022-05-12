@@ -59,7 +59,7 @@ impl BotRuntime {
         wt.groups.clone()
     }
 
-    pub fn new<T: Into<String>>(bot_username: T) -> Self {
+    pub fn new() -> Self {
         let bot = Bot::from_env().auto_send();
 
         let (tx, _) = broadcast::channel(5);
@@ -68,13 +68,19 @@ impl BotRuntime {
             bot,
             whitelist: Arc::new(RwLock::new(Whitelist::new())),
             shutdown_sig: tx,
-            bot_username: bot_username.into(),
+            bot_username: "".to_string(),
             task_pool: TaskPool::new(),
         }
     }
 
-    pub async fn run(&self) -> Result<()> {
+    pub async fn run(&mut self) -> Result<()> {
         use crate::handler::*;
+
+        // setup bot username
+        let username = self.bot.get_me().await?;
+        self.bot_username = username.username().to_string();
+
+        // setup handler
         let dproot = dptree::entry().branch(Update::filter_message().endpoint(message_handler));
         Dispatcher::builder(self.bot.clone(), dproot)
             .dependencies(dptree::deps![self.clone()])
