@@ -49,7 +49,7 @@ pub struct BotRuntime {
     pub whitelist: Arc<RwLock<Whitelist>>,
     shutdown_sig: broadcast::Sender<u8>,
     bot_username: String,
-    task_pool: TaskPool,
+    pub task_pool: TaskPool,
     bot: AutoSend<Bot>,
 }
 

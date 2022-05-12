@@ -37,7 +37,11 @@ enum Command {
         description = "添加一个新的播报任务。例子：/addtask 30 （添加一个 30s 播报一次的任务）",
         parse_with = "split"
     )]
-    AddTask{ secs: u64 },
+    AddTask { secs: u64 },
+    #[command(description = "列出当前所有的播报任务")]
+    ListTask,
+    // #[command(description = "删除指定的任务")]
+    // DelTask,
 }
 
 async fn command_handler(msg: Message, bot: AutoSend<Bot>, rt: &mut BotRuntime) -> Result<()> {
@@ -50,7 +54,11 @@ async fn command_handler(msg: Message, bot: AutoSend<Bot>, rt: &mut BotRuntime) 
     }
 
     let command = command.unwrap();
-    tracing::info!("User {} using command: {:?}", msg.from().unwrap().id, command);
+    tracing::info!(
+        "User {} using command: {:?}",
+        msg.from().unwrap().id,
+        command
+    );
     match command {
         Command::Help | Command::Start => {
             bot.send_message(msg.chat.id, Command::descriptions().to_string())
@@ -61,9 +69,23 @@ async fn command_handler(msg: Message, bot: AutoSend<Bot>, rt: &mut BotRuntime) 
         Command::List => {}
         Command::Remove => {}
         Command::Clean => {}
-        Command::AddTask{ secs } => {
+        Command::AddTask { secs } => {
             tracing::info!("User {} add new schedule task", msg.from().unwrap().id);
-            rt.add_schedule_task(secs)
+            rt.add_schedule_task(secs);
+            bot.send_message(
+                msg.chat.id,
+                format!("你已经添加了每隔 {} 秒播报一次的任务。", secs),
+            )
+            .await?;
+        }
+        Command::ListTask => {
+            let task = rt.task_pool.list_task();
+
+            let text = format!("总共 {} 个任务\n", task.len());
+            let text = task.iter().fold(text, |acc, x| {
+                format!("{}任务 {}，循环周期：{} 秒\n", acc, x.0, x.1)
+            });
+            bot.send_message(msg.chat.id, text).await?;
         }
     }
 

@@ -14,6 +14,7 @@ pub struct TaskPool {
 
 pub struct ScheduleTask {
     id: usize,
+    interval: u64,
     signal: tokio::sync::watch::Sender<u8>,
     handle: tokio::task::JoinHandle<Result<()>>,
 }
@@ -61,6 +62,7 @@ impl ScheduleTask {
 
         Self {
             signal: tx,
+            interval: dur.as_secs(),
             handle,
             id,
         }
@@ -86,5 +88,11 @@ impl TaskPool {
         let mut pool = self.pool.write();
         let task = ScheduleTask::new(pool.len() + 1, Duration::from_secs(secs), groups, bot);
         pool.push(task);
+    }
+
+    pub fn list_task(&self) -> Vec<(usize, u64)> {
+        let pool = self.pool.read();
+
+        pool.iter().map(|x| (x.id, x.interval)).collect()
     }
 }
