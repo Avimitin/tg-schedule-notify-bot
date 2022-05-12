@@ -1,5 +1,6 @@
 use crate::BotRuntime;
 use anyhow::Result;
+use teloxide::types::ChatId;
 use teloxide::{prelude::*, types::UserId, utils::command::BotCommands};
 
 pub async fn message_handler(msg: Message, bot: AutoSend<Bot>, rt: BotRuntime) -> Result<()> {
@@ -9,13 +10,13 @@ pub async fn message_handler(msg: Message, bot: AutoSend<Bot>, rt: BotRuntime) -
     }
 
     if msg.text().is_some() {
-        command_handler(msg.clone(), bot, rt.clone()).await?;
+        command_handler(msg.clone(), bot, &mut rt.clone()).await?;
     }
 
     Ok(())
 }
 
-#[derive(BotCommands)]
+#[derive(BotCommands, Debug)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
 enum Command {
     #[command(description = "Display this text")]
@@ -33,12 +34,13 @@ enum Command {
     #[command(description = "Clean the whole message queue")]
     Clean,
     #[command(
-        description = "添加一个新的播报任务。例子：/addtask 30 （添加一个 30s 播报一次的任务）"
+        description = "添加一个新的播报任务。例子：/addtask 30 （添加一个 30s 播报一次的任务）",
+        parse_with = "split"
     )]
-    AddTask,
+    AddTask{ secs: u64 },
 }
 
-async fn command_handler(msg: Message, bot: AutoSend<Bot>, rt: BotRuntime) -> Result<()> {
+async fn command_handler(msg: Message, bot: AutoSend<Bot>, rt: &mut BotRuntime) -> Result<()> {
     let text = msg.text().unwrap();
 
     let command = BotCommands::parse(text, rt.username());
@@ -48,6 +50,7 @@ async fn command_handler(msg: Message, bot: AutoSend<Bot>, rt: BotRuntime) -> Re
     }
 
     let command = command.unwrap();
+    tracing::info!("User {} using command: {:?}", msg.from().unwrap().id, command);
     match command {
         Command::Help | Command::Start => {
             bot.send_message(msg.chat.id, Command::descriptions().to_string())
@@ -58,13 +61,16 @@ async fn command_handler(msg: Message, bot: AutoSend<Bot>, rt: BotRuntime) -> Re
         Command::List => {}
         Command::Remove => {}
         Command::Clean => {}
-        Command::AddTask => {}
+        Command::AddTask{ secs } => {
+            tracing::info!("User {} add new schedule task", msg.from().unwrap().id);
+            rt.add_schedule_task(secs)
+        }
     }
 
     Ok(())
 }
 
-async fn text_handler(msg: Message, bot: AutoSend<Bot>, rt: BotRuntime) -> Result<()> {
+async fn text_handler(msg: Message, bot: AutoSend<Bot>, rt: &mut BotRuntime) -> Result<()> {
     Ok(())
 }
 

@@ -4,6 +4,7 @@ use teloxide::types::{ChatId, UserId};
 use teloxide::prelude::*;
 use tokio::sync::broadcast;
 use anyhow::Result;
+use crate::schedule::TaskPool;
 
 /// MessageQueue store the message for sending
 #[derive(Clone)]
@@ -31,9 +32,9 @@ pub struct Whitelist {
 impl Whitelist {
     pub fn new() -> Self {
         Self {
-            maintainers: Vec::new(),
+            maintainers: vec![UserId(649191333)],
             admins: Vec::new(),
-            groups: Arc::new(Vec::new()),
+            groups: Arc::new(vec![ChatId(649191333)]),
         }
     }
 
@@ -48,6 +49,8 @@ pub struct BotRuntime {
     pub whitelist: Arc<RwLock<Whitelist>>,
     shutdown_sig: broadcast::Sender<u8>,
     bot_username: String,
+    task_pool: TaskPool,
+    bot: AutoSend<Bot>,
 }
 
 impl BotRuntime {
@@ -57,21 +60,23 @@ impl BotRuntime {
     }
 
     pub fn new<T: Into<String>>(bot_username: T) -> Self {
+        let bot = Bot::from_env().auto_send();
+
         let (tx, _) = broadcast::channel(5);
 
         Self {
+            bot,
             whitelist: Arc::new(RwLock::new(Whitelist::new())),
             shutdown_sig: tx,
             bot_username: bot_username.into(),
+            task_pool: TaskPool::new(),
         }
     }
 
     pub async fn run(&self) -> Result<()> {
-        let bot = Bot::from_env().auto_send();
-
         use crate::handler::*;
         let dproot = dptree::entry().branch(Update::filter_message().endpoint(message_handler));
-        Dispatcher::builder(bot, dproot)
+        Dispatcher::builder(self.bot.clone(), dproot)
             .dependencies(dptree::deps![self.clone()])
             .build()
             .setup_ctrlc_handler()
@@ -88,11 +93,12 @@ impl BotRuntime {
     pub fn username(&self) -> &str {
         &self.bot_username
     }
-}
 
-/// Send shutdown signal to all subscribed sub task
-impl Drop for BotRuntime {
-    fn drop(&mut self) {
-        self.shutdown_sig.send(1).expect("Shutdown notify channel is already closed!");
+    pub fn add_schedule_task(&mut self, secs: u64) {
+        let wt = self.whitelist.read();
+        let groups = wt.groups.clone();
+        // give a copy of the groups when create task
+        // this is not a frequent operation, so it is ok
+        self.task_pool.add_task(secs, groups.to_vec(), self.bot.clone())
     }
 }

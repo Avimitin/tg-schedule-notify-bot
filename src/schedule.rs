@@ -1,43 +1,90 @@
 use anyhow::Result;
+use parking_lot::RwLock;
+use std::sync::Arc;
 use std::time::Duration;
 use teloxide::{prelude::*, types::ChatId};
-use tokio::time::interval;
-use tracing::error;
-use crate::BotRuntime;
+use tokio::sync::watch;
+use tokio::time as tok_time;
+use tracing::{ error, trace };
 
-/// scheduled_notifier send message periodly. It will precisely wait for `secs` second.
-pub async fn scheduled_notifier(bot: AutoSend<Bot>, rt: BotRuntime, secs: u64) -> Result<()> {
-    let mut heartbeat = interval(Duration::from_secs(secs));
-    let mut rx = rt.subscribe_shut_sig();
+#[derive(Clone)]
+pub struct TaskPool {
+    pool: Arc<RwLock<Vec<ScheduleTask>>>,
+}
 
-    loop {
-        tokio::select! {
-            _ = rx.recv() => {
-                // receive shutdown signal
-                return Ok(())
-            }
-            _ = heartbeat.tick() => {
-                let mut wg = Vec::new();
+pub struct ScheduleTask {
+    id: usize,
+    signal: tokio::sync::watch::Sender<u8>,
+    handle: tokio::task::JoinHandle<Result<()>>,
+}
 
-                let groups = rt.get_group();
-                for gid in groups.iter() {
-                    let bot = bot.clone();
-                    let gid = gid.0;
-                    let join = tokio::spawn(async move {
-                        let group_id = ChatId(gid);
-                        bot.send_message(group_id, "Hey").await
-                    });
-                    wg.push(join);
+impl ScheduleTask {
+    pub fn new(id: usize, dur: Duration, groups: Vec<ChatId>, bot: AutoSend<Bot>) -> Self {
+        let (tx, mut rx) = watch::channel(0);
+
+        let handle = tokio::spawn(async move {
+            let mut ticker = tok_time::interval(dur);
+            let id = id;
+            loop {
+                tracing::info!("schedule task {} start sending notification", id);
+                tokio::select! {
+                    // receive shutdown signal
+                    _ = rx.changed() => {
+                        return Ok(())
+                    }
+
+                    // new ticker received
+                    _ = ticker.tick() => {
+                        let mut wg = Vec::new();
+
+                        for gid in groups.iter() {
+                            let bot = bot.clone();
+                            let gid = gid.0;
+                            let join = tokio::spawn(async move {
+                                let group_id = ChatId(gid);
+                                bot.send_message(group_id, "Hey").await
+                            });
+                            wg.push(join);
+                        }
+
+                        // wait for all send message done for their jobs
+                        for j in wg {
+                            match j.await? {
+                                Ok(_) => {},
+                                Err(e) => error!("Fail to send hey: {}", e),
+                            };
+                        }
+                    }
                 }
-
-                // wait for all send message done for their jobs
-                for j in wg {
-                    match j.await? {
-                        Ok(_) => {},
-                        Err(e) => error!("Fail to send hey: {}", e),
-                    };
-                }
             }
+        });
+
+        Self {
+            signal: tx,
+            handle,
+            id,
         }
+    }
+
+    pub fn stop(&self) {
+        match self.signal.send(1) {
+            Ok(_) => {}
+            Err(e) => error!("fail to stop schedule task {}: {}", self.id, e),
+        };
+    }
+}
+
+impl TaskPool {
+    pub fn new() -> Self {
+        Self {
+            pool: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+
+    pub fn add_task(&mut self, secs: u64, groups: Vec<ChatId>, bot: AutoSend<Bot>) {
+        // lock the pool and write to it
+        let mut pool = self.pool.write();
+        let task = ScheduleTask::new(pool.len() + 1, Duration::from_secs(secs), groups, bot);
+        pool.push(task);
     }
 }
