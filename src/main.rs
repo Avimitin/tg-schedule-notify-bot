@@ -8,8 +8,8 @@ async fn main() -> Result<()> {
     info!("Bot initializing");
     dotenv::dotenv().ok();
 
-    let brt = BotRuntime::new();
-    brt.run().await;
+    let brt = BotRuntime::new("botfather");
+    brt.run().await?;
 
     Ok(())
 }
