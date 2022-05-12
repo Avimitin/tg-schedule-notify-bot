@@ -8,7 +8,7 @@ use crate::BotRuntime;
 /// scheduled_notifier send message periodly. It will precisely wait for `secs` second.
 pub async fn scheduled_notifier(bot: AutoSend<Bot>, rt: BotRuntime, secs: u64) -> Result<()> {
     let mut heartbeat = interval(Duration::from_secs(secs));
-    let mut rx = rt.shutdown_sig.subscribe();
+    let mut rx = rt.subscribe_shut_sig();
 
     loop {
         tokio::select! {

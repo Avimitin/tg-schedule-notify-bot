@@ -69,7 +69,7 @@ impl Whitelist {
 #[derive(Clone)]
 pub struct BotRuntime {
     pub whitelist: Arc<RwLock<Whitelist>>,
-    pub shutdown_sig: broadcast::Sender<u8>,
+    shutdown_sig: broadcast::Sender<u8>,
 }
 
 impl BotRuntime {
@@ -93,11 +93,23 @@ impl BotRuntime {
         use crate::handler::*;
         let dproot = dptree::entry().branch(Update::filter_message().endpoint(message_handler));
         Dispatcher::builder(bot, dproot)
+            .dependencies(dptree::deps![self.clone()])
             .build()
             .setup_ctrlc_handler()
             .dispatch()
             .await;
 
         Ok(())
+    }
+
+    pub fn subscribe_shut_sig(&self) -> broadcast::Receiver<u8> {
+        self.shutdown_sig.subscribe()
+    }
+}
+
+/// Send shutdown signal to all subscribed sub task
+impl Drop for BotRuntime {
+    fn drop(&mut self) {
+        self.shutdown_sig.send(1).expect("Shutdown notify channel is already closed!");
     }
 }
