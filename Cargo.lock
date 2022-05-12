@@ -610,6 +610,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dotenv",
+ "parking_lot",
  "teloxide",
  "tokio",
  "tracing",

@@ -1,10 +1,12 @@
 use anyhow::{Context, Result};
-use std::{
-    error::Error,
-    sync::{Arc, Mutex},
+use parking_lot::RwLock;
+use std::sync::Arc;
+use teloxide::{
+    prelude::*,
+    types::{ChatId, UserId},
+    utils::command::BotCommands,
 };
-use teloxide::{prelude::*, types::UserId, utils::command::BotCommands};
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 /// MessageQueue store the message for sending
 #[derive(Clone)]
@@ -19,18 +21,37 @@ impl MessageQueue {
 }
 
 /// Whitelist store context for authorization
+#[derive(Clone)]
 struct Whitelist {
     /// Maintainers can grant admin, manage bot
     maintainers: Vec<UserId>,
     /// Admins can manage bot
     admins: Vec<UserId>,
     /// List of groups that bot make response
-    groups: Vec<i64>,
+    groups: Arc<Vec<ChatId>>,
+}
+
+impl Whitelist {
+    fn new() -> Self {
+        Self {
+            maintainers: Vec::new(),
+            admins: Vec::new(),
+            groups: Arc::new(Vec::new()),
+        }
+    }
 }
 
 #[derive(Clone)]
 struct BotRuntime {
-    whitelist: Arc<Mutex<Whitelist>>,
+    whitelist: Arc<RwLock<Whitelist>>,
+    shutdown_sig: tokio::sync::broadcast::Sender<u8>,
+}
+
+impl BotRuntime {
+    fn get_group(&self) -> Arc<Vec<ChatId>> {
+        let wt = self.whitelist.read();
+        wt.groups.clone()
+    }
 }
 
 #[derive(BotCommands)]
@@ -55,15 +76,25 @@ enum Command {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
     info!("Bot initializing");
     dotenv::dotenv().ok();
     run().await
 }
 
-async fn run() {
+async fn run() -> Result<()> {
     let bot = Bot::from_env().auto_send();
+
+    let (tx, _) = tokio::sync::broadcast::channel(5);
+
+    let rt = BotRuntime {
+        whitelist: Arc::new(RwLock::new(Whitelist::new())),
+        shutdown_sig: tx,
+    };
+
+    // AutoSend<Bot> is free to clone, just like Rc
+    let sc_task_1 = tokio::spawn(scheduled_notifier(bot.clone(), rt, 30));
 
     let dproot = dptree::entry().branch(Update::filter_message().endpoint(message_handler));
     Dispatcher::builder(bot, dproot)
@@ -71,6 +102,43 @@ async fn run() {
         .setup_ctrlc_handler()
         .dispatch()
         .await;
+
+    Ok(sc_task_1
+        .await
+        .with_context(|| "Error occurs during the notification time")??)
+}
+
+async fn scheduled_notifier(bot: AutoSend<Bot>, rt: BotRuntime, secs: u64) -> Result<()> {
+    let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(secs));
+    let mut rx = rt.shutdown_sig.subscribe();
+
+    loop {
+        tokio::select! {
+            _ = rx.recv() => {
+                return Ok(())
+            }
+            _ = heartbeat.tick() => {
+                let groups = rt.get_group();
+                let mut wg = Vec::new();
+                for gid in groups.iter() {
+                    let bot = bot.clone();
+                    let gid = gid.0;
+                    let join = tokio::spawn(async move {
+                        let group_id = ChatId(gid);
+                        bot.send_message(group_id, "Hey").await
+                    });
+                    wg.push(join);
+                }
+
+                for j in wg {
+                    match j.await? {
+                        Ok(_) => {},
+                        Err(e) => error!("Fail to send hey: {}", e),
+                    };
+                }
+            }
+        }
+    }
 }
 
 async fn message_handler(msg: Message, bot: AutoSend<Bot>, rt: BotRuntime) -> Result<()> {
@@ -97,7 +165,7 @@ impl AuthorizeResult {
 }
 
 fn authorize(msg: Message, id: UserId, rt: BotRuntime) -> AuthorizeResult {
-    let whitelist = rt.whitelist.lock().unwrap();
+    let whitelist = rt.whitelist.read();
     // if it is in chat, and it is maintainer/admin calling
     let result = msg.chat.is_private()
         && whitelist.maintainers.iter().find(|&&x| x == id).is_some()
