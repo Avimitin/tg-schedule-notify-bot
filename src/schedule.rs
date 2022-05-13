@@ -25,12 +25,13 @@ impl ScheduleTask {
 
         let handle = tokio::spawn(async move {
             let mut ticker = tok_time::interval(dur);
-            let id = id;
+            let id = id.clone();
             loop {
                 tracing::info!("schedule task {} start sending notification", id);
                 tokio::select! {
                     // receive shutdown signal
                     _ = rx.changed() => {
+                        tracing::info!("Schedule Task {} stop the jobs", id);
                         return Ok(())
                     }
 
