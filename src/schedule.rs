@@ -95,4 +95,14 @@ impl TaskPool {
 
         pool.iter().map(|x| (x.id, x.interval)).collect()
     }
+
+    pub fn remove(&mut self, index: usize) -> Result<()> {
+        let mut pool = self.pool.write();
+        if index == 0 || index - 1 > pool.len() - 1 {
+            return Err(anyhow::anyhow!("Task {} is not exist!", index));
+        }
+        let task = pool.remove(index - 1);
+        task.stop();
+        Ok(())
+    }
 }

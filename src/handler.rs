@@ -1,10 +1,16 @@
 use crate::BotRuntime;
 use anyhow::Result;
-use teloxide::types::ChatId;
 use teloxide::{prelude::*, types::UserId, utils::command::BotCommands};
 
 pub async fn message_handler(msg: Message, bot: AutoSend<Bot>, rt: BotRuntime) -> Result<()> {
-    let sender = msg.from().unwrap().id;
+    // convert Option<User> to Result<User, Error>
+    let sender = msg
+        .from()
+        .ok_or_else(|| {
+            // some type of messages that came from telegram, like new member, or member leave
+            anyhow::anyhow!("A system message, abandoned")
+        })?
+        .id;
     if !has_access(msg.clone(), sender, rt.clone()) {
         anyhow::bail!("No access")
     }
@@ -40,8 +46,11 @@ enum Command {
     AddTask { secs: u64 },
     #[command(description = "列出当前所有的播报任务")]
     ListTask,
-    // #[command(description = "删除指定的任务")]
-    // DelTask,
+    #[command(
+        description = "删除指定的任务。例子：/deltask 1 （删除编号 1 的任务）",
+        parse_with = "split"
+    )]
+    DelTask { id: usize },
 }
 
 async fn command_handler(msg: Message, bot: AutoSend<Bot>, rt: &mut BotRuntime) -> Result<()> {
@@ -86,6 +95,21 @@ async fn command_handler(msg: Message, bot: AutoSend<Bot>, rt: &mut BotRuntime) 
                 format!("{}任务 {}，循环周期：{} 秒\n", acc, x.0, x.1)
             });
             bot.send_message(msg.chat.id, text).await?;
+        }
+        Command::DelTask { id } => {
+            bot.send_message(msg.chat.id, "正在删除任务").await?;
+            match rt.task_pool.remove(id) {
+                Ok(_) => {
+                    bot.send_message(msg.chat.id, "删除成功").await?;
+                }
+                Err(e) => {
+                    bot.send_message(
+                        msg.chat.id,
+                        format!("删除失败：{}，请用 /listtask 确认任务存在。", e),
+                    )
+                    .await?;
+                }
+            }
         }
     }
 
