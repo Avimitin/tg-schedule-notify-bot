@@ -5,7 +5,7 @@ use std::time::Duration;
 use teloxide::{prelude::*, types::ChatId};
 use tokio::sync::watch;
 use tokio::time as tok_time;
-use tracing::{ error, trace };
+use tracing::{error, debug};
 
 #[derive(Clone)]
 pub struct TaskPool {
@@ -16,18 +16,18 @@ pub struct ScheduleTask {
     id: usize,
     interval: u64,
     signal: tokio::sync::watch::Sender<u8>,
-    handle: tokio::task::JoinHandle<Result<()>>,
 }
 
 impl ScheduleTask {
     pub fn new(id: usize, dur: Duration, groups: Vec<ChatId>, bot: AutoSend<Bot>) -> Self {
         let (tx, mut rx) = watch::channel(0);
 
-        let handle = tokio::spawn(async move {
+        let _: tokio::task::JoinHandle<Result<()>> = tokio::spawn(async move {
             let mut ticker = tok_time::interval(dur);
             let id = id.clone();
             loop {
-                tracing::info!("schedule task {} start sending notification", id);
+                debug!("schedule task {} start sending notification", id);
+
                 tokio::select! {
                     // receive shutdown signal
                     _ = rx.changed() => {
@@ -64,7 +64,6 @@ impl ScheduleTask {
         Self {
             signal: tx,
             interval: dur.as_secs(),
-            handle,
             id,
         }
     }
