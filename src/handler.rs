@@ -11,7 +11,7 @@ pub async fn message_handler(msg: Message, bot: AutoSend<Bot>, rt: BotRuntime) -
             anyhow::anyhow!("A system message, abandoned")
         })?
         .id;
-    if !has_access(msg.clone(), sender, rt.clone()) {
+    if !has_access(&msg, sender, &rt) {
         anyhow::bail!("No access")
     }
 
@@ -59,7 +59,8 @@ async fn command_handler(msg: Message, bot: AutoSend<Bot>, rt: &mut BotRuntime) 
     let command = BotCommands::parse(text, rt.username());
 
     if command.is_err() {
-        return text_handler(msg.clone(), bot.clone(), rt).await;
+        // NOTE: maybe need to handle normal text message here
+        return Ok(());
     }
 
     let command = command.unwrap();
@@ -116,11 +117,7 @@ async fn command_handler(msg: Message, bot: AutoSend<Bot>, rt: &mut BotRuntime) 
     Ok(())
 }
 
-async fn text_handler(msg: Message, bot: AutoSend<Bot>, rt: &mut BotRuntime) -> Result<()> {
-    Ok(())
-}
-
-fn has_access(msg: Message, id: UserId, rt: BotRuntime) -> bool {
+fn has_access(msg: &Message, id: UserId, rt: &BotRuntime) -> bool {
     let whitelist = rt.whitelist.read();
     // if it is in chat, and it is maintainer/admin calling
     msg.chat.is_private() && whitelist.has_access(id)
