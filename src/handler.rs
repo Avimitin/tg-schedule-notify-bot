@@ -29,21 +29,11 @@ enum Command {
     Help,
     #[command(description = "Start")]
     Start,
-    #[command(description = "Create a new admin")]
-    Grant,
-    #[command(description = "Add message into pending queue")]
-    Add,
-    #[command(description = "List pending messages")]
-    List,
-    #[command(description = "Remove message")]
-    Remove,
-    #[command(description = "Clean the whole message queue")]
-    Clean,
     #[command(
         description = "添加一个新的播报任务。例子：/addtask 30 （添加一个 30s 播报一次的任务）",
         parse_with = "split"
     )]
-    AddTask { secs: u64 },
+    AddTask { secs: u64, notification: String },
     #[command(description = "列出当前所有的播报任务")]
     ListTask,
     #[command(
@@ -74,14 +64,9 @@ async fn command_handler(msg: Message, bot: AutoSend<Bot>, rt: &mut BotRuntime) 
             bot.send_message(msg.chat.id, Command::descriptions().to_string())
                 .await?;
         }
-        Command::Grant => {}
-        Command::Add => {}
-        Command::List => {}
-        Command::Remove => {}
-        Command::Clean => {}
-        Command::AddTask { secs } => {
+        Command::AddTask { secs, notification } => {
             tracing::info!("User {} add new schedule task", msg.from().unwrap().id);
-            rt.add_schedule_task(secs);
+            rt.task_pool.add_task(secs, rt.get_groups(), notification);
             bot.send_message(
                 msg.chat.id,
                 format!("你已经添加了每隔 {} 秒播报一次的任务。", secs),

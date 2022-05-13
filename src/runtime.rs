@@ -6,18 +6,6 @@ use tokio::sync::broadcast;
 use anyhow::Result;
 use crate::schedule::TaskPool;
 
-/// MessageQueue store the message for sending
-#[derive(Clone)]
-struct MessageQueue {
-    v: Vec<String>,
-}
-
-impl MessageQueue {
-    pub fn new() -> Self {
-        Self { v: Vec::new() }
-    }
-}
-
 /// Whitelist store context for authorization
 #[derive(Clone)]
 pub struct Whitelist {
@@ -65,11 +53,11 @@ impl BotRuntime {
         let (tx, _) = broadcast::channel(5);
 
         Self {
-            bot,
+            bot: bot.clone(),
             whitelist: Arc::new(RwLock::new(Whitelist::new())),
             shutdown_sig: tx,
             bot_username: "".to_string(),
-            task_pool: TaskPool::new(),
+            task_pool: TaskPool::new(bot.clone()),
         }
     }
 
@@ -100,11 +88,8 @@ impl BotRuntime {
         &self.bot_username
     }
 
-    pub fn add_schedule_task(&mut self, secs: u64) {
+    pub fn get_groups(&self) -> Vec<ChatId> {
         let wt = self.whitelist.read();
-        let groups = wt.groups.clone();
-        // give a copy of the groups when create task
-        // this is not a frequent operation, so it is ok
-        self.task_pool.add_task(secs, groups.to_vec(), self.bot.clone())
+        wt.groups.to_vec()
     }
 }
