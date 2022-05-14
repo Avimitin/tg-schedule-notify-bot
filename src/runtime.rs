@@ -31,12 +31,22 @@ impl Whitelist {
     }
 }
 
-#[derive(Clone)]
 pub struct BotRuntime {
     pub whitelist: Arc<RwLock<Whitelist>>,
     shutdown_sig: Arc<broadcast::Sender<u8>>,
     bot_username: String,
     pub task_pool: TaskPool,
+}
+
+impl Clone for BotRuntime {
+    fn clone(&self) -> Self {
+        Self {
+            whitelist: Arc::clone(&self.whitelist),
+            shutdown_sig: Arc::clone(&self.shutdown_sig),
+            bot_username: self.bot_username.clone(),
+            task_pool: self.task_pool.clone(),
+        }
+    }
 }
 
 impl BotRuntime {
