@@ -119,3 +119,13 @@ bot: ... (No response)
   # Separate by comma `;`
   NOTIFY_BOT_ADMINS="123;456;789"
   ```
+
+## Button Parser
+
+How to parse buttons?
+
+```text
+Button Text | link
+
+[But1 | https://github.com] [But2 | https://youtube.com]
+```
