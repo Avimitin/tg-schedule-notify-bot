@@ -48,9 +48,16 @@ pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
             .branch(dptree::case![Command::DelTask].endpoint(del_task_handler)),
     );
 
+    // test if the user has access to the bot
+    let has_access = |msg: &Message, id: UserId, rt: &BotRuntime| -> bool {
+        let whitelist = rt.whitelist.read();
+        // if it is in chat, and it is maintainer/admin calling
+        msg.chat.is_private() && whitelist.has_access(id)
+    };
+
     let message_handler = Update::filter_message().branch(
         // basic auth
-        dptree::filter(|msg: Message, rt: BotRuntime| {
+        dptree::filter(move |msg: Message, rt: BotRuntime| {
             let id = match msg.from() {
                 Some(user) => user.id,
                 None => return false,
@@ -123,28 +130,23 @@ enum Command {
     DelTask,
 }
 
-fn has_access(msg: &Message, id: UserId, rt: &BotRuntime) -> bool {
-    let whitelist = rt.whitelist.read();
-    // if it is in chat, and it is maintainer/admin calling
-    msg.chat.is_private() && whitelist.has_access(id)
-}
-
 async fn add_task_handler(
     msg: Message,
     bot: AutoSend<Bot>,
     dialogue: AddTaskDialogue,
-    mut rt: BotRuntime,
 ) -> Result<()> {
-    tracing::info!("User {} add new schedule task", msg.from().unwrap().id);
-    rt.task_pool.add_task(1, rt.get_groups(), "".to_string());
+    tracing::info!(
+        "User {} try adding new schedule task",
+        msg.from().unwrap().id
+    );
+    bot.send_message(
+        msg.chat.id,
+        format!("正在创建一个新的定时任务，请发送通知的内容："),
+    )
+    .await?;
     dialogue
         .update(AddTaskDialogueCurrentState::RequestNotifyText)
         .await?;
-    bot.send_message(
-        msg.chat.id,
-        format!("你已经添加了每隔 {} 秒播报一次的任务。", 1),
-    )
-    .await?;
 
     Ok(())
 }
