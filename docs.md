@@ -8,28 +8,34 @@
 
 ## Diagram
 
+### Bot logic
+
 ```mermaid
 stateDiagram-v2
 
 [*] --> Bot
 Bot --> Message: receive
-Message --> GroupAuth
-GroupAuth --> [*]: Not in whitelist
-GroupAuth --> TypeFilter
-TypeFilter --> [*]: IsText
+Message -->ChatAuth
+ChatAuth --> Abandon: Not in whitelist
+ChatAuth --> TypeFilter
+TypeFilter --> Abandon: IsText
 TypeFilter --> Auth: IsCommand
-Auth --> [*]: IsUser
+Auth --> Abandon: IsUser
 Auth --> CommandHandler: IsAdmin
-Storage --> Response
-CommandHandler --> Storage: Update
-CommandHandler --> Timer: Update
-Timer-->Storage: Read
-Storage-->Timer: Read
-Bot-->Timer:Spawn Thread
-Timer --> [*]: Notify
-
-Response --> [*]
+state TaskPool {
+  [*] --> ScheduleTask1
+  ScheduleTask1 --> Storage1: Write
+  Storage1 --> ScheduleTask1: Read
+  --
+  [*] --> ScheduleTask2
+  ScheduleTask2 --> Storage2: Write
+  Storage2 --> ScheduleTask2: Read
+}
+CommandHandler --> TaskPool: Update
+TaskPool --> [*]: Notify
 ```
+
+### Type Definition
 
 ```mermaid
 classDiagram
@@ -45,6 +51,23 @@ class UserLevel {
   Admin
   User
 }
+```
+
+### Task Creat diagram
+
+```mermaid
+sequenceDiagram
+
+  User->>Bot: /addtask
+  Bot->>User: Require text message
+  User->>Bot: Text message
+  Bot->>User: Require repeat interval
+  User->>Bot: integer
+  Bot->>User: Require button definition
+  User->>Bot: buttons
+  Bot->>User: Require confirm
+  User->>Bot: confirm
+  Bot->>Groups: Send notification
 ```
 
 ## Message
