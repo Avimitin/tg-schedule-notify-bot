@@ -1,5 +1,5 @@
 mod schedule;
-mod handler;
+pub mod handler;
 mod runtime;
 mod command;
 

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use teloxide::types::{ChatId, UserId};
 use teloxide::prelude::*;
 use tokio::sync::broadcast;
-use anyhow::Result;
 use crate::schedule::TaskPool;
 
 /// Whitelist store context for authorization
@@ -35,10 +34,9 @@ impl Whitelist {
 #[derive(Clone)]
 pub struct BotRuntime {
     pub whitelist: Arc<RwLock<Whitelist>>,
-    shutdown_sig: broadcast::Sender<u8>,
+    shutdown_sig: Arc<broadcast::Sender<u8>>,
     bot_username: String,
     pub task_pool: TaskPool,
-    bot: AutoSend<Bot>,
 }
 
 impl BotRuntime {
@@ -47,37 +45,15 @@ impl BotRuntime {
         wt.groups.clone()
     }
 
-    pub fn new() -> Self {
-        let bot = Bot::from_env().auto_send();
-
+    pub fn new(bot: AutoSend<Bot>, username: String) -> Self {
         let (tx, _) = broadcast::channel(5);
 
         Self {
-            bot: bot.clone(),
             whitelist: Arc::new(RwLock::new(Whitelist::new())),
-            shutdown_sig: tx,
-            bot_username: "".to_string(),
+            shutdown_sig: Arc::new(tx),
+            bot_username: username,
             task_pool: TaskPool::new(bot.clone()),
         }
-    }
-
-    pub async fn run(&mut self) -> Result<()> {
-        use crate::handler::*;
-
-        // setup bot username
-        let username = self.bot.get_me().await?;
-        self.bot_username = username.username().to_string();
-
-        // setup handler
-        let dproot = dptree::entry().branch(Update::filter_message().endpoint(message_handler));
-        Dispatcher::builder(self.bot.clone(), dproot)
-            .dependencies(dptree::deps![self.clone()])
-            .build()
-            .setup_ctrlc_handler()
-            .dispatch()
-            .await;
-
-        Ok(())
     }
 
     pub fn subscribe_shut_sig(&self) -> broadcast::Receiver<u8> {

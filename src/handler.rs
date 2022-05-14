@@ -31,9 +31,8 @@ enum Command {
     Start,
     #[command(
         description = "添加一个新的播报任务。例子：/addtask 30 （添加一个 30s 播报一次的任务）",
-        parse_with = "split"
     )]
-    AddTask { secs: u64, notification: String },
+    AddTask,
     #[command(description = "列出当前所有的播报任务")]
     ListTask,
     #[command(
@@ -64,14 +63,9 @@ async fn command_handler(msg: Message, bot: AutoSend<Bot>, rt: &mut BotRuntime) 
             bot.send_message(msg.chat.id, Command::descriptions().to_string())
                 .await?;
         }
-        Command::AddTask { secs, notification } => {
+        Command::AddTask => {
             tracing::info!("User {} add new schedule task", msg.from().unwrap().id);
-            rt.task_pool.add_task(secs, rt.get_groups(), notification);
-            bot.send_message(
-                msg.chat.id,
-                format!("你已经添加了每隔 {} 秒播报一次的任务。", secs),
-            )
-            .await?;
+            add_task_handler(&msg, &bot, rt).await?;
         }
         Command::ListTask => {
             let task = rt.task_pool.list_task();
@@ -106,4 +100,15 @@ fn has_access(msg: &Message, id: UserId, rt: &BotRuntime) -> bool {
     let whitelist = rt.whitelist.read();
     // if it is in chat, and it is maintainer/admin calling
     msg.chat.is_private() && whitelist.has_access(id)
+}
+
+async fn add_task_handler(msg: &Message, bot: &AutoSend<Bot>, rt: &mut BotRuntime) -> Result<()> {
+    rt.task_pool.add_task(1, rt.get_groups(), "".to_string());
+    bot.send_message(
+        msg.chat.id,
+        format!("你已经添加了每隔 {} 秒播报一次的任务。", 1),
+    )
+    .await?;
+
+    Ok(())
 }
