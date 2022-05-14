@@ -37,50 +37,6 @@ impl Default for AddTaskDialogueCurrentState {
     }
 }
 
-/// Build the bot message handle logic
-pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
-    let command_handler = teloxide::filter_command::<Command, _>().branch(
-        dptree::case![AddTaskDialogueCurrentState::None]
-            .branch(dptree::case![Command::Help].endpoint(help))
-            .branch(dptree::case![Command::Start].endpoint(help))
-            .branch(dptree::case![Command::AddTask].endpoint(add_task_handler))
-            .branch(dptree::case![Command::ListTask].endpoint(list_task_handler))
-            .branch(dptree::case![Command::DelTask].endpoint(del_task_handler)),
-    );
-
-    // test if the user has access to the bot
-    let has_access = |msg: &Message, id: UserId, rt: &BotRuntime| -> bool {
-        let whitelist = rt.whitelist.read();
-        // if it is in chat, and it is maintainer/admin calling
-        msg.chat.is_private() && whitelist.has_access(id)
-    };
-
-    let message_handler = Update::filter_message().branch(
-        // basic auth
-        dptree::filter(move |msg: Message, rt: BotRuntime| {
-            let id = match msg.from() {
-                Some(user) => user.id,
-                None => return false,
-            };
-            has_access(&msg, id, &rt)
-        })
-        .branch(
-            command_handler.branch(
-                dptree::case![AddTaskDialogueCurrentState::RequestNotifyText]
-                    .endpoint(request_notify_text),
-            ),
-        ),
-    );
-
-    dialogue::enter::<
-        Update,
-        InMemStorage<AddTaskDialogueCurrentState>,
-        AddTaskDialogueCurrentState,
-        _,
-    >()
-    .branch(message_handler)
-}
-
 async fn help(msg: Message, bot: AutoSend<Bot>) -> Result<()> {
     bot.send_message(msg.chat.id, Command::descriptions().to_string())
         .await?;
@@ -193,3 +149,48 @@ async fn del_task_handler(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) 
     }
     Ok(())
 }
+
+/// Build the bot message handle logic
+pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
+    let command_handler = teloxide::filter_command::<Command, _>().branch(
+        dptree::case![AddTaskDialogueCurrentState::None]
+            .branch(dptree::case![Command::Help].endpoint(help))
+            .branch(dptree::case![Command::Start].endpoint(help))
+            .branch(dptree::case![Command::AddTask].endpoint(add_task_handler))
+            .branch(dptree::case![Command::ListTask].endpoint(list_task_handler))
+            .branch(dptree::case![Command::DelTask].endpoint(del_task_handler)),
+    );
+
+    // test if the user has access to the bot
+    let has_access = |msg: &Message, id: UserId, rt: &BotRuntime| -> bool {
+        let whitelist = rt.whitelist.read();
+        // if it is in chat, and it is maintainer/admin calling
+        msg.chat.is_private() && whitelist.has_access(id)
+    };
+
+    let message_handler = Update::filter_message().branch(
+        // basic auth
+        dptree::filter(move |msg: Message, rt: BotRuntime| {
+            let id = match msg.from() {
+                Some(user) => user.id,
+                None => return false,
+            };
+            has_access(&msg, id, &rt)
+        })
+        .branch(
+            command_handler.branch(
+                dptree::case![AddTaskDialogueCurrentState::RequestNotifyText]
+                    .endpoint(request_notify_text),
+            ),
+        ),
+    );
+
+    dialogue::enter::<
+        Update,
+        InMemStorage<AddTaskDialogueCurrentState>,
+        AddTaskDialogueCurrentState,
+        _,
+    >()
+    .branch(message_handler)
+}
+
