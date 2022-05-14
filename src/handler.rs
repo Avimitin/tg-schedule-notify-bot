@@ -1,5 +1,6 @@
 use crate::BotRuntime;
 use anyhow::Result;
+use regex::Regex;
 use teloxide::{
     dispatching::{
         dialogue::{self, InMemStorage},
@@ -9,6 +10,15 @@ use teloxide::{
     types::UserId,
     utils::command::BotCommands,
 };
+
+lazy_static::lazy_static!(
+    static ref BUT_CONTENT_REGEX: Regex = Regex::new(
+        r"(\w+)\s*?:\s*?(http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+)"
+    ).unwrap();
+    static ref BUT_PARSER: Regex = Regex::new(
+        r"\[([^\[\]]*)\]"
+    ).unwrap();
+);
 
 #[derive(Clone)]
 pub enum AddTaskDialogueCurrentState {
@@ -55,6 +65,7 @@ async fn request_notify_text(
                 "请发送时间间隔，只需要数字即可。（单位：分钟）",
             )
             .await?;
+            // Update next status to interval request
             dialogue
                 .update(AddTaskDialogueCurrentState::RequestRepeatInterval {
                     text: notify.to_string(),
@@ -65,6 +76,65 @@ async fn request_notify_text(
             bot.send_message(msg.chat.id, "请发送通知的文本").await?;
         }
     }
+
+    Ok(())
+}
+
+async fn request_repeat_interval(
+    msg: Message,
+    bot: AutoSend<Bot>,
+    dialogue: AddTaskDialogue,
+    text: String,
+) -> Result<()> {
+    match msg.text().map(|t| t.parse::<u64>()) {
+        Some(Ok(interval)) => {
+            bot.send_message(
+                msg.chat.id,
+                format!(
+                    "bot 将会毎 {interval} 分钟发送一次：
+{text}
+
+格式: [按钮文本|链接] （这里是半角的括号）
+示例：[注册|https://example.com]
+如果需要给按钮分不同的行，只需要在新的一行重现写按钮就行：
+示例：
+[注册|https://example.com/register] [登录|https://example.com/login]
+[下载|https://example.com/download] [反馈|https://example.com/feedback]
+
+接下来请你输入附带在定时通知上的按钮信息:"
+                ),
+            )
+            .await?;
+            dialogue
+                .update(AddTaskDialogueCurrentState::RequestButtons { text, interval })
+                .await?;
+        }
+        _ => {
+            bot.send_message(msg.chat.id, "非法输入！请只输入数字")
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn request_buttons(
+    msg: Message,
+    bot: AutoSend<Bot>,
+    dialogue: AddTaskDialogue,
+    (text, interval): (String, u64),
+) -> Result<()> {
+    if msg.text().is_none() {
+        bot.send_message(msg.chat.id, "bot 需要文字消息！请重新输入！")
+            .await?;
+        anyhow::bail!("invalid message text for parsing buttons");
+    }
+
+    let msg_text = msg.text().unwrap();
+    for line in msg_text.lines() {
+        tracing::info!("{line}");
+    }
+
+    dialogue.exit().await?;
 
     Ok(())
 }
@@ -177,11 +247,18 @@ pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
             };
             has_access(&msg, id, &rt)
         })
+        .branch(command_handler)
         .branch(
-            command_handler.branch(
-                dptree::case![AddTaskDialogueCurrentState::RequestNotifyText]
-                    .endpoint(request_notify_text),
-            ),
+            dptree::case![AddTaskDialogueCurrentState::RequestNotifyText]
+                .endpoint(request_notify_text),
+        )
+        .branch(
+            dptree::case![AddTaskDialogueCurrentState::RequestRepeatInterval { text }]
+                .endpoint(request_repeat_interval),
+        )
+        .branch(
+            dptree::case![AddTaskDialogueCurrentState::RequestButtons { text, interval }]
+                .endpoint(request_buttons),
         ),
     );
 
@@ -193,4 +270,3 @@ pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
     >()
     .branch(message_handler)
 }
-
