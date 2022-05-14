@@ -90,18 +90,23 @@ async fn request_repeat_interval(
         Some(Ok(interval)) => {
             bot.send_message(
                 msg.chat.id,
-                format!(
-                    "bot 将会毎 {interval} 分钟发送一次：
-{text}
+                format!("bot 将会毎 {interval} 分钟发送一次：\n\n{text}"),
+            )
+            .await?;
 
+            bot.send_message(
+                msg.chat.id,
+                format!(
+                    "接下来请你输入附带在定时通知上的按钮信息:
+=================================
 格式: [按钮文本|链接] （这里是半角的括号）
 示例：[注册|https://example.com]
 如果需要给按钮分不同的行，只需要在新的一行重现写按钮就行：
 示例：
 [注册|https://example.com/register] [登录|https://example.com/login]
 [下载|https://example.com/download] [反馈|https://example.com/feedback]
-
-接下来请你输入附带在定时通知上的按钮信息:"
+=================================
+"
                 ),
             )
             .await?;
