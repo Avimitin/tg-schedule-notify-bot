@@ -4,21 +4,101 @@ use regex::Regex;
 use teloxide::{
     dispatching::{
         dialogue::{self, InMemStorage},
-        UpdateHandler,
+        UpdateFilterExt, UpdateHandler,
     },
+    payloads::SendMessageSetters,
     prelude::*,
-    types::UserId,
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, UserId},
     utils::command::BotCommands,
 };
 
 lazy_static::lazy_static!(
     static ref BUT_CONTENT_REGEX: Regex = Regex::new(
-        r"(\w+)\s*?:\s*?(http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+)"
+        r"(\w+)\s*?\|\s*?([^\s]+)"
     ).unwrap();
     static ref BUT_PARSER: Regex = Regex::new(
         r"\[([^\[\]]*)\]"
     ).unwrap();
 );
+
+/// parse_button can parse multiple button and extract their context into a vector
+fn parse_button(text: &str) -> Option<Vec<String>> {
+    let mut v = Vec::with_capacity(4);
+    for cap in BUT_PARSER.captures_iter(text) {
+        v.push(cap[1].to_string());
+    }
+    if v.is_empty() {
+        None
+    } else {
+        Some(v)
+    }
+}
+
+/// parse_button_content parse *single* button context to two part.
+/// This function is used to split button contents, it is not used for parsing the button.
+/// So call `parse_button` for the raw button definition.
+/// This function will also validate URL correctness.
+/// It can split word|http link, word |http link, word | http link.
+/// Return `None` if the button text is not construct with normal word character,
+/// or link is not a valid URL.
+fn parse_button_content(text: &str) -> Option<(String, url::Url)> {
+    // early return `None` if no match found
+    let cap = BUT_CONTENT_REGEX.captures(text)?;
+    let url = url::Url::parse(cap.get(2)?.as_str()).ok()?;
+    // early return `None` when any capture group doesn't matched
+    Some((cap.get(1)?.as_str().to_string(), url))
+}
+
+#[test]
+fn parse_button_text() {
+    let text = "[按钮1|示例文本]";
+    let result = parse_button(text);
+    assert!(result.is_some());
+    let result = result.unwrap();
+    for r in result {
+        assert_eq!(r, "按钮1|示例文本");
+    }
+
+    let text = "[按钮1|示例文本][按钮2|参考文本]  [button3|example text]";
+    let result = parse_button(text);
+    assert!(result.is_some());
+    let result = result.unwrap();
+    assert_eq!(
+        result,
+        vec!["按钮1|示例文本", "按钮2|参考文本", "button3|example text"]
+    );
+}
+
+#[test]
+fn parse_button_content_test() {
+    // test invalid URL
+    let text = "按钮1|示例文本";
+    assert_eq!(parse_button_content(text), None);
+
+    // test invalid text
+    let text = "  |https://github.com";
+    assert_eq!(parse_button_content(text), None);
+
+    // test correct format
+    let text = "Button|https://example.com";
+    assert_eq!(
+        parse_button_content(text),
+        Some((
+            "Button".to_string(),
+            url::Url::parse("https://example.com").unwrap()
+        ))
+    );
+
+    // test Chinese text
+    let text = "按钮|https://example.com";
+    assert_eq!(
+        parse_button_content(text),
+        Some((
+            "按钮".to_string(),
+            url::Url::parse("https://example.com").unwrap()
+        ))
+    );
+}
 
 #[derive(Clone)]
 pub enum AddTaskDialogueCurrentState {
@@ -34,7 +114,7 @@ pub enum AddTaskDialogueCurrentState {
     RequestConfirmation {
         text: String,
         interval: u64,
-        buttons: Vec<String>,
+        buttons: InlineKeyboardMarkup,
     },
 }
 
@@ -135,11 +215,90 @@ async fn request_buttons(
     }
 
     let msg_text = msg.text().unwrap();
+    // the final result
+    let mut keyboard: Vec<Vec<InlineKeyboardButton>> = vec![];
+    // parse buttons line by line
     for line in msg_text.lines() {
-        tracing::info!("{line}");
+        // create a row of button collection
+        let mut row = Vec::new();
+        // first parse the buttons in current line
+        let buttons = parse_button(line);
+        if buttons.is_none() {
+            bot.send_message(msg.chat.id, "错误的链接定义！请参照上面的格式重新输入！")
+                .await?;
+            anyhow::bail!("invalid button definition: {}", line);
+        }
+        let buttons = buttons.unwrap();
+        // then parse the contents inside of the buttons definition
+        for but in buttons {
+            let pair = parse_button_content(&but);
+            if pair.is_none() {
+                bot.send_message(msg.chat.id, "按钮的内容定义有问题！请重新输入！")
+                    .await?;
+                anyhow::bail!("invalid button contents: {}", but);
+            }
+            let pair = pair.unwrap();
+            // finally create a new button and push into row
+            row.push(InlineKeyboardButton::url(pair.0, pair.1));
+        }
+        // push the new row into final results
+        keyboard.push(row);
     }
 
-    dialogue.exit().await?;
+    let buttons = InlineKeyboardMarkup::new(keyboard);
+
+    bot.send_message(msg.chat.id, format!("{text}"))
+        .reply_markup(buttons.clone())
+        .await?;
+
+    bot.send_message(
+        msg.chat.id,
+        format!("上面的信息将会每隔 {interval} 分钟重复一次。\n请确认添加这个新的通知："),
+    )
+    .reply_markup(create_add_task_confirm_buttons())
+    .await?;
+
+    dialogue
+        .update(AddTaskDialogueCurrentState::RequestConfirmation {
+            text,
+            interval,
+            buttons,
+        })
+        .await?;
+
+    Ok(())
+}
+
+fn create_add_task_confirm_buttons() -> InlineKeyboardMarkup {
+    let buttons = vec![vec![
+        InlineKeyboardButton::callback("确认", "add_task_confirm_y"),
+        InlineKeyboardButton::callback("取消", "add_task_confirm_n"),
+    ]];
+    InlineKeyboardMarkup::new(buttons)
+}
+
+async fn button_callback_handler(q: CallbackQuery, bot: AutoSend<Bot>) -> Result<()> {
+    // we might create some empty button for dressing
+    if q.data.is_none() {
+        return Ok(());
+    }
+
+    let data = q.data.unwrap();
+    let chat_id = q
+        .message
+        .ok_or_else(|| anyhow::anyhow!("A button callback without message can't be handle"))?
+        .chat
+        .id;
+
+    match data.as_str() {
+        "add_task_confirm_y" => {
+            bot.send_message(chat_id, "你已提交了任务！").await?;
+        }
+        "add_task_confirm_n" => {
+            bot.send_message(chat_id, "你已取消了任务！").await?;
+        }
+        _ => {}
+    }
 
     Ok(())
 }
@@ -267,11 +426,24 @@ pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
         ),
     );
 
+    let callback_handler = Update::filter_callback_query().branch(
+        dptree::case![AddTaskDialogueCurrentState::RequestConfirmation {
+            text,
+            interval,
+            buttons
+        }]
+        .endpoint(button_callback_handler),
+    );
+
+    let root = dptree::entry()
+        .branch(message_handler)
+        .branch(callback_handler);
+
     dialogue::enter::<
         Update,
         InMemStorage<AddTaskDialogueCurrentState>,
         AddTaskDialogueCurrentState,
         _,
     >()
-    .branch(message_handler)
+    .branch(root)
 }
