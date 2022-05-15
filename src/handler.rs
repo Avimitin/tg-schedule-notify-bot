@@ -13,9 +13,12 @@ use teloxide::{
 };
 
 lazy_static::lazy_static!(
+    /// Parse button content. Expect `\w+|http://link`
+    /// url::Url::parse will validate the http link, so we don't need to do this here
     static ref BUT_CONTENT_REGEX: Regex = Regex::new(
         r"(\w+)\s*?\|\s*?([^\s]+)"
     ).unwrap();
+    /// Parse buttons. Expect `[Any character]`
     static ref BUT_PARSER: Regex = Regex::new(
         r"\[([^\[\]]*)\]"
     ).unwrap();
@@ -101,16 +104,18 @@ fn parse_button_content_test() {
 }
 
 #[derive(Clone)]
+/// AddTaskDialogueCurrentState describe current add task dialogue progress.
 pub enum AddTaskDialogueCurrentState {
+    /// None describe that there is no add task dialogue
     None,
+    /// RequestNotifyText describe that current status bot require notification text
     RequestNotifyText,
-    RequestRepeatInterval {
-        text: String,
-    },
-    RequestButtons {
-        text: String,
-        interval: u64,
-    },
+    /// RequestRepeatInterval describe that in curret status, bot require notification
+    /// repeat interval settings
+    RequestRepeatInterval { text: String },
+    /// RequestButtons describe that in current status, bot require button definition.
+    RequestButtons { text: String, interval: u64 },
+    /// RequestConfirmation describe that in current status, bot require final result confirmation.
     RequestConfirmation {
         text: String,
         interval: u64,
@@ -118,21 +123,19 @@ pub enum AddTaskDialogueCurrentState {
     },
 }
 
-pub type AddTaskDialogue =
-    Dialogue<AddTaskDialogueCurrentState, InMemStorage<AddTaskDialogueCurrentState>>;
-
 impl Default for AddTaskDialogueCurrentState {
     fn default() -> Self {
         Self::None
     }
 }
 
-async fn help(msg: Message, bot: AutoSend<Bot>) -> Result<()> {
-    bot.send_message(msg.chat.id, Command::descriptions().to_string())
-        .await?;
-    Ok(())
-}
+/// An alias type for shorthand, nothing special
+pub type AddTaskDialogue =
+    Dialogue<AddTaskDialogueCurrentState, InMemStorage<AddTaskDialogueCurrentState>>;
 
+/// Handler for AddTaskDialogueCurrentState::RequestNotifyText status
+/// request_notify_text receive notification text, store in memory, and change status
+/// to AddTaskDialogueCurrentState::RequestRepeatInterval.
 async fn request_notify_text(
     msg: Message,
     bot: AutoSend<Bot>,
@@ -160,6 +163,8 @@ async fn request_notify_text(
     Ok(())
 }
 
+/// Handler for AddTaskDialogueCurrentState::RequestRepeatInterval status
+/// It parse interval to u64, then update status to RequestButtons.
 async fn request_repeat_interval(
     msg: Message,
     bot: AutoSend<Bot>,
@@ -202,6 +207,8 @@ async fn request_repeat_interval(
     Ok(())
 }
 
+/// Handler for AddTaskDialogueCurrentState::RequestButtons status
+/// It parse input to buttons, then update status to RequestConfirmation.
 async fn request_buttons(
     msg: Message,
     bot: AutoSend<Bot>,
@@ -269,6 +276,8 @@ async fn request_buttons(
     Ok(())
 }
 
+/// Create a InlineKeyboardMarkup for confirmation. Callback data is prefixed
+/// by `add_task_confirm_`. Suffix `y` means confirm, `n` means cancel.
 fn create_add_task_confirm_buttons() -> InlineKeyboardMarkup {
     let buttons = vec![vec![
         InlineKeyboardButton::callback("确认", "add_task_confirm_y"),
@@ -277,6 +286,7 @@ fn create_add_task_confirm_buttons() -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(buttons)
 }
 
+/// Callback handler for buttons CallbackQuery.
 async fn button_callback_handler(q: CallbackQuery, bot: AutoSend<Bot>) -> Result<()> {
     // we might create some empty button for dressing
     if q.data.is_none() {
@@ -306,20 +316,27 @@ async fn button_callback_handler(q: CallbackQuery, bot: AutoSend<Bot>) -> Result
 #[derive(BotCommands, Debug, Clone)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
 enum Command {
-    #[command(description = "Display this text")]
+    #[command(description = "显示这条帮助消息")]
     Help,
-    #[command(description = "Start")]
+    #[command(description = "显示这条帮助消息")]
     Start,
-    #[command(
-        description = "添加一个新的播报任务。例子：/addtask 30 （添加一个 30s 播报一次的任务）"
-    )]
+    #[command(description = "添加一个新的播报任务。")]
     AddTask,
     #[command(description = "列出当前所有的播报任务")]
     ListTask,
-    #[command(description = "删除指定的任务。例子：/deltask 1 （删除编号 1 的任务）")]
+    #[command(description = "删除指定的任务。")]
     DelTask,
 }
 
+/// Response command man page
+async fn help(msg: Message, bot: AutoSend<Bot>) -> Result<()> {
+    bot.send_message(msg.chat.id, Command::descriptions().to_string())
+        .await?;
+    Ok(())
+}
+
+/// Handler for adding task command. This start the add task dialogue, and change
+/// AddTaskDialogueCurrentState to RequestNotifyText.
 async fn add_task_handler(
     msg: Message,
     bot: AutoSend<Bot>,
@@ -341,6 +358,7 @@ async fn add_task_handler(
     Ok(())
 }
 
+/// Handler for /listtask.
 async fn list_task_handler(msg: Message, bot: AutoSend<Bot>, rt: BotRuntime) -> Result<()> {
     let task = rt.task_pool.list_task();
 
@@ -353,6 +371,7 @@ async fn list_task_handler(msg: Message, bot: AutoSend<Bot>, rt: BotRuntime) -> 
     Ok(())
 }
 
+/// Handler for /deltask command.
 async fn del_task_handler(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) -> Result<()> {
     bot.send_message(msg.chat.id, "正在删除任务").await?;
     let text = msg.text().ok_or_else(|| anyhow::anyhow!("非法字符！"))?;
@@ -386,6 +405,7 @@ async fn del_task_handler(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) 
 
 /// Build the bot message handle logic
 pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
+    // build the command handler
     let command_handler = teloxide::filter_command::<Command, _>().branch(
         dptree::case![AddTaskDialogueCurrentState::None]
             .branch(dptree::case![Command::Help].endpoint(help))
@@ -402,6 +422,7 @@ pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
         msg.chat.is_private() && whitelist.has_access(id)
     };
 
+    // build the text message handler
     let message_handler = Update::filter_message().branch(
         // basic auth
         dptree::filter(move |msg: Message, rt: BotRuntime| {
@@ -411,7 +432,9 @@ pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
             };
             has_access(&msg, id, &rt)
         })
+        // enter command filter
         .branch(command_handler)
+        // handle non command message
         .branch(
             dptree::case![AddTaskDialogueCurrentState::RequestNotifyText]
                 .endpoint(request_notify_text),
@@ -426,6 +449,7 @@ pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
         ),
     );
 
+    // build the callback handler
     let callback_handler = Update::filter_callback_query().branch(
         dptree::case![AddTaskDialogueCurrentState::RequestConfirmation {
             text,
@@ -435,6 +459,13 @@ pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
         .endpoint(button_callback_handler),
     );
 
+    /*
+     * Update --> <IsMessage> --> message_handler --> <IsCommand> --> command_handler
+     *     \                                    \
+     *      \                                   * --> normal_message_handler
+     *      \
+     *       *--> <IsCallbackQuery> --> query_handler
+     */
     let root = dptree::entry()
         .branch(message_handler)
         .branch(callback_handler);

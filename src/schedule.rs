@@ -8,12 +8,14 @@ use tokio::time as tok_time;
 use tracing::{debug, error};
 
 #[derive(Clone)]
+/// TaskPool store tasks and a copy of bot.
 pub struct TaskPool {
     pool: Arc<RwLock<Vec<ScheduleTask>>>,
     bot: AutoSend<Bot>,
 }
 
 impl TaskPool {
+    /// Create a new task pool with zero size vector
     pub fn new(bot: teloxide::prelude::AutoSend<teloxide::prelude::Bot>) -> Self {
         Self {
             pool: Arc::new(RwLock::new(Vec::new())),
@@ -21,19 +23,24 @@ impl TaskPool {
         }
     }
 
-    pub fn add_task(&mut self, secs: u64, groups: Vec<ChatId>, init_text: String) {
+    /// Spawn a new task. It needs repeat interval, a list of groups to send message, and a init
+    /// text to notify.
+    pub fn add_task(&mut self, mins: u64, groups: Vec<ChatId>, init_text: String) {
         // lock the pool and write to it
         let mut pool = self.pool.write();
-        let task = ScheduleTask::new(pool.len() + 1, Duration::from_secs(secs), groups, self.bot.clone(), init_text);
+        // FIXME: from_secs should be replace with minutes
+        let task = ScheduleTask::new(pool.len() + 1, Duration::from_secs(mins), groups, self.bot.clone(), init_text);
         pool.push(task);
     }
 
+    /// List current running task
     pub fn list_task(&self) -> Vec<(usize, u64)> {
         let pool = self.pool.read();
 
         pool.iter().map(|x| (x.id, x.interval)).collect()
     }
 
+    /// Stop a task, and remove it from pool
     pub fn remove(&mut self, index: usize) -> Result<()> {
         let mut pool = self.pool.write();
         if index == 0 || index - 1 > pool.len() - 1 {
@@ -45,19 +52,28 @@ impl TaskPool {
     }
 }
 
+/// A unit of a repeating notify task
 pub struct ScheduleTask {
+    /// Task id
     id: usize,
+    /// Repeat interval, in minute unit
     interval: u64,
+    /// A signal to close this task
     signal: watch::Sender<u8>,
+    /// A channel to edit this task
     editor: mpsc::Sender<TaskEditType>,
 }
 
 #[derive(Debug)]
+/// TaskEditType describe the behavior about updating the task.
 enum TaskEditType {
+    /// AddNotification describe a add notification behavior. It will add a new notification
+    /// text into the task storage.
     AddNotification(String),
 }
 
 impl ScheduleTask {
+    /// Spawn a new tokio task to run a forever loop. It will notify when the ticker send a tick
     pub fn new(id: usize, dur: Duration, groups: Vec<ChatId>, bot: AutoSend<Bot>, init_text: String) -> Self {
         let (tx, mut rx) = watch::channel(0);
         let (editor, mut edit_sig) = mpsc::channel(3);
@@ -77,6 +93,7 @@ impl ScheduleTask {
                         return Ok(())
                     }
 
+                    // receive edit message
                     edit = edit_sig.recv() => {
                         tracing::info!("Editing task {}", id);
                         match edit {
@@ -126,6 +143,7 @@ impl ScheduleTask {
         }
     }
 
+    /// Send a to the spawed task to stop the task.
     pub fn stop(&self) {
         match self.signal.send(1) {
             Ok(_) => {}
@@ -133,6 +151,7 @@ impl ScheduleTask {
         };
     }
 
+    /// A wrapper function to add a new notification text to the task
     pub async fn add_notification(&self, s: String) {
         self.editor.send(TaskEditType::AddNotification(s)).await.unwrap();
     }

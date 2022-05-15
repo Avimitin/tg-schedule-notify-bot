@@ -25,12 +25,14 @@ impl Whitelist {
         }
     }
 
+    /// Test if the user is one of the maintainers or admins.
     pub fn has_access(&self, user: UserId) -> bool {
         self.maintainers.iter().find(|&&id| id == user).is_some()
             || self.admins.iter().find(|&&id| id == user).is_some()
     }
 }
 
+/// BotRuntime is a memory storage for running the bot.
 pub struct BotRuntime {
     pub whitelist: Arc<RwLock<Whitelist>>,
     shutdown_sig: Arc<broadcast::Sender<u8>>,
@@ -50,11 +52,13 @@ impl Clone for BotRuntime {
 }
 
 impl BotRuntime {
+    /// get_group lock the RwLock in read mode, return a Atomic reference to the groups array
     pub fn get_group(&self) -> Arc<Vec<ChatId>> {
         let wt = self.whitelist.read();
         wt.groups.clone()
     }
 
+    /// Create a new runtime with activated bot and bot username.
     pub fn new(bot: AutoSend<Bot>, username: String) -> Self {
         let (tx, _) = broadcast::channel(5);
 
@@ -66,16 +70,13 @@ impl BotRuntime {
         }
     }
 
+    /// Subscribe a signal to know if the BotRuntime get shutdown
     pub fn subscribe_shut_sig(&self) -> broadcast::Receiver<u8> {
         self.shutdown_sig.subscribe()
     }
 
+    /// Return a reference to the bot username
     pub fn username(&self) -> &str {
         &self.bot_username
-    }
-
-    pub fn get_groups(&self) -> Vec<ChatId> {
-        let wt = self.whitelist.read();
-        wt.groups.to_vec()
     }
 }
