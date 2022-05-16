@@ -1,4 +1,4 @@
-use crate::BotRuntime;
+use crate::{schedule::ScheduleTask, BotRuntime};
 use anyhow::Result;
 use regex::Regex;
 use teloxide::{
@@ -287,7 +287,13 @@ fn create_add_task_confirm_buttons() -> InlineKeyboardMarkup {
 }
 
 /// Callback handler for buttons CallbackQuery.
-async fn button_callback_handler(q: CallbackQuery, bot: AutoSend<Bot>) -> Result<()> {
+async fn button_callback_handler(
+    q: CallbackQuery,
+    bot: AutoSend<Bot>,
+    dialogue: AddTaskDialogue,
+    mut rt: BotRuntime,
+    (text, interval, buttons): (String, u64, InlineKeyboardMarkup),
+) -> Result<()> {
     // we might create some empty button for dressing
     if q.data.is_none() {
         return Ok(());
@@ -302,10 +308,17 @@ async fn button_callback_handler(q: CallbackQuery, bot: AutoSend<Bot>) -> Result
 
     match data.as_str() {
         "add_task_confirm_y" => {
+            let task = ScheduleTask::new()
+                .interval(interval)
+                .pending_notification(vec![text])
+                .msg_buttons(buttons);
+            rt.task_pool.add_task(task);
             bot.send_message(chat_id, "你已提交了任务！").await?;
+            dialogue.exit().await?;
         }
         "add_task_confirm_n" => {
             bot.send_message(chat_id, "你已取消了任务！").await?;
+            dialogue.exit().await?;
         }
         _ => {}
     }
@@ -364,7 +377,13 @@ async fn list_task_handler(msg: Message, bot: AutoSend<Bot>, rt: BotRuntime) -> 
 
     let text = format!("总共 {} 个任务\n", task.len());
     let text = task.iter().fold(text, |acc, x| {
-        format!("{}任务 {}，循环周期：{} 秒\n", acc, x.0, x.1)
+        let id = x.0;
+        let inv = x.1;
+        let content = &x.2;
+        format!(
+            "{acc}任务 {id}，循环周期：{inv} 秒，任务内容：{content}\n{}\n\n",
+            "=".repeat(35)
+        )
     });
     bot.send_message(msg.chat.id, text).await?;
 
@@ -380,7 +399,7 @@ async fn del_task_handler(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) 
         anyhow::bail!("需要 id 才能删除任务！，你可以用 /listtask 查看任务 id");
     }
     let id = args[0];
-    let id = match id.parse::<usize>() {
+    let id = match id.parse::<u32>() {
         Ok(i) => i,
         Err(e) => {
             bot.send_message(msg.chat.id, format! {"{id} 不是一个合法的数字！"})
@@ -463,8 +482,8 @@ pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
      * Update --> <IsMessage> --> message_handler --> <IsCommand> --> command_handler
      *     \                                    \
      *      \                                   * --> normal_message_handler
-     *      \
-     *       *--> <IsCallbackQuery> --> query_handler
+     *       \
+     *        *--> <IsCallbackQuery> --> query_handler
      */
     let root = dptree::entry()
         .branch(message_handler)
