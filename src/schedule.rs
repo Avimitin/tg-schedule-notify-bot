@@ -1,12 +1,18 @@
 use anyhow::Result;
 use parking_lot::RwLock;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
-use teloxide::payloads::SendMessageSetters;
-use teloxide::types::InlineKeyboardMarkup;
-use teloxide::{prelude::*, types::ChatId};
+use std::{
+  collections::HashMap,
+  sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
+  },
+  time::Duration,
+};
+use teloxide::{
+  payloads::SendMessageSetters,
+  prelude::*,
+  types::{ChatId, InlineKeyboardMarkup},
+};
 use tokio::sync::mpsc;
 use tokio::time as tok_time;
 use tracing::error;
