@@ -181,44 +181,44 @@ impl ScheduleTask {
     let mut ticker = tok_time::interval(Duration::from_secs(self.interval));
     loop {
       tokio::select! {
-          // receive edit message
-          edit = self.editor_rx.recv() => {
-              tracing::info!("Editing task {}", id);
-              match edit {
-                  // Some(TaskEditType::AddNotification(s)) => {
-                  //     self.pending_notification.push(s);
-                  // },
-                  Some(TaskEditType::ShutdownTask) => {
-                      tracing::info!("Task {} is shutdown", id);
-                      return Ok(());
-                  }
-                  None => {
-                      // Editor channel might be shutdown when the value is dropped
-                      tracing::info!("Task {} is closed by other", id);
-                      return Ok(());
-                  }
-              }
+        // receive edit message
+        edit = self.editor_rx.recv() => {
+          tracing::info!("Editing task {}", id);
+          match edit {
+            // Some(TaskEditType::AddNotification(s)) => {
+            //     self.pending_notification.push(s);
+            // },
+            Some(TaskEditType::ShutdownTask) => {
+                tracing::info!("Task {} is shutdown", id);
+                return Ok(());
+            }
+            None => {
+                // Editor channel might be shutdown when the value is dropped
+                tracing::info!("Task {} is closed by other", id);
+                return Ok(());
+            }
           }
+        }
 
-          // new ticker received
-          _ = ticker.tick() => {
-              tracing::trace!("schedule task {} start sending notification", id);
+        // new ticker received
+        _ = ticker.tick() => {
+          tracing::trace!("schedule task {} start sending notification", id);
 
-              // clone once for move between thread
-              let text = Arc::new(self.pending_notification[0].to_owned());
-              let buttons = self.msg_buttons.as_ref().unwrap();
+          // clone once for move between thread
+          let text = Arc::new(self.pending_notification[0].to_owned());
+          let buttons = self.msg_buttons.as_ref().unwrap();
 
-              for gid in self.groups.iter() {
-                  let bot = bot.clone();
-                  let text = text.clone();
-                  let gid = gid.0;
-                  let group_id = ChatId(gid);
-                  tracing::trace!("Going to send {:?} to {:?}", text, gid);
-                  bot.send_message(group_id, text.as_str())
-                      .reply_markup(buttons.clone())
-                      .await?;
-              }
+          for gid in self.groups.iter() {
+              let bot = bot.clone();
+              let text = text.clone();
+              let gid = gid.0;
+              let group_id = ChatId(gid);
+              tracing::trace!("Going to send {:?} to {:?}", text, gid);
+              bot.send_message(group_id, text.as_str())
+                  .reply_markup(buttons.clone())
+                  .await?;
           }
+        }
       }
     }
   }
