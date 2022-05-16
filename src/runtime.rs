@@ -1,9 +1,9 @@
+use crate::schedule::TaskPool;
 use parking_lot::RwLock;
 use std::sync::Arc;
-use teloxide::types::{ChatId, UserId};
 use teloxide::prelude::*;
+use teloxide::types::{ChatId, UserId};
 use tokio::sync::broadcast;
-use crate::schedule::TaskPool;
 
 /// Whitelist store context for authorization
 #[derive(Clone)]
@@ -14,6 +14,12 @@ pub struct Whitelist {
     pub admins: Vec<UserId>,
     /// List of groups that bot make response
     pub groups: Arc<Vec<ChatId>>,
+}
+
+impl Default for Whitelist {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Whitelist {
@@ -27,8 +33,7 @@ impl Whitelist {
 
     /// Test if the user is one of the maintainers or admins.
     pub fn has_access(&self, user: UserId) -> bool {
-        self.maintainers.iter().find(|&&id| id == user).is_some()
-            || self.admins.iter().find(|&&id| id == user).is_some()
+        self.maintainers.iter().any(|&id| id == user) || self.admins.iter().any(|&id| id == user)
     }
 }
 
@@ -66,7 +71,7 @@ impl BotRuntime {
             whitelist: Arc::new(RwLock::new(Whitelist::new())),
             shutdown_sig: Arc::new(tx),
             bot_username: username,
-            task_pool: TaskPool::new(bot.clone()),
+            task_pool: TaskPool::new(bot),
         }
     }
 

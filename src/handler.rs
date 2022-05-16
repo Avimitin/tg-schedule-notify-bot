@@ -181,8 +181,7 @@ async fn request_repeat_interval(
 
             bot.send_message(
                 msg.chat.id,
-                format!(
-                    "接下来请你输入附带在定时通知上的按钮信息:
+                "接下来请你输入附带在定时通知上的按钮信息:
 =================================
 格式: [按钮文本|链接] （这里是半角的括号）
 示例：[注册|https://example.com]
@@ -192,7 +191,7 @@ async fn request_repeat_interval(
 [下载|https://example.com/download] [反馈|https://example.com/feedback]
 =================================
 "
-                ),
+                .to_string(),
             )
             .await?;
             dialogue
@@ -254,7 +253,7 @@ async fn request_buttons(
 
     let buttons = InlineKeyboardMarkup::new(keyboard);
 
-    bot.send_message(msg.chat.id, format!("{text}"))
+    bot.send_message(msg.chat.id, text.to_string())
         .reply_markup(buttons.clone())
         .await?;
 
@@ -362,7 +361,7 @@ async fn add_task_handler(
     );
     bot.send_message(
         msg.chat.id,
-        format!("正在创建一个新的定时任务，请发送通知的内容："),
+        "正在创建一个新的定时任务，请发送通知的内容：".to_string(),
     )
     .await?;
     dialogue

@@ -67,9 +67,8 @@ impl TaskPool {
 
     fn remove_task(&mut self, index: u32) -> Result<TaskInfo> {
         let mut pool = self.pool.write();
-        Ok(pool
-            .remove(&index)
-            .ok_or_else(|| anyhow::anyhow!("Invalid index, no task found"))?)
+        pool.remove(&index)
+            .ok_or_else(|| anyhow::anyhow!("Invalid index, no task found"))
     }
 
     /// Stop a task, and remove it from pool
@@ -118,8 +117,8 @@ enum TaskEditType {
     ShutdownTask,
 }
 
-impl ScheduleTask {
-    pub fn new() -> Self {
+impl Default for ScheduleTask {
+    fn default() -> Self {
         let (editor, editor_rx) = mpsc::channel(5);
         Self {
             interval: 0,
@@ -130,6 +129,12 @@ impl ScheduleTask {
             editor,
             editor_rx,
         }
+    }
+}
+
+impl ScheduleTask {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn interval(mut self, interval: u64) -> Self {
@@ -208,7 +213,7 @@ impl ScheduleTask {
         TaskInfo {
             interval: self.interval,
             content: skim,
-            editor: Editor(self.editor.clone()),
+            editor: Editor(self.editor),
         }
     }
 }

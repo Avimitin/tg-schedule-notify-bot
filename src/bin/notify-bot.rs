@@ -1,8 +1,8 @@
 use anyhow::Result;
-use notify_bot::BotRuntime;
-use tracing::info;
 use notify_bot::handler::*;
-use teloxide::{prelude::*, dispatching::dialogue::InMemStorage};
+use notify_bot::BotRuntime;
+use teloxide::{dispatching::dialogue::InMemStorage, prelude::*};
+use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -20,7 +20,10 @@ async fn main() -> Result<()> {
 
     // setup handler
     Dispatcher::builder(bot.clone(), handler_schema())
-        .dependencies(dptree::deps![runtime, InMemStorage::<AddTaskDialogueCurrentState>::new()])
+        .dependencies(dptree::deps![
+            runtime,
+            InMemStorage::<AddTaskDialogueCurrentState>::new()
+        ])
         .build()
         .setup_ctrlc_handler()
         .dispatch()
