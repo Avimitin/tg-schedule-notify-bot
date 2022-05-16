@@ -159,61 +159,65 @@ impl ScheduleTask {
 
     /// Spawn a new tokio task to run a forever loop. It will notify when the ticker send a tick.
     /// Task will consume itself and return necessary information about the task
-    pub fn run(mut self, id: u32, bot: AutoSend<Bot>) -> TaskInfo {
+    pub fn run(self, id: u32, bot: AutoSend<Bot>) -> TaskInfo {
         // copy a skim of the content for describing this task
-        let skim = self.pending_notification[0].to_string();
-        let _: tokio::task::JoinHandle<Result<()>> = tokio::spawn(async move {
-            let mut ticker = tok_time::interval(Duration::from_secs(self.interval));
-            loop {
-                tokio::select! {
-                    // receive edit message
-                    edit = self.editor_rx.recv() => {
-                        tracing::info!("Editing task {}", id);
-                        match edit {
-                            // Some(TaskEditType::AddNotification(s)) => {
-                            //     self.pending_notification.push(s);
-                            // },
-                            Some(TaskEditType::ShutdownTask) => {
-                                tracing::info!("Task {} is shutdown", id);
-                                break Ok(())
-                            }
-                            None => {
-                                // Editor channel might be shutdown when the value is dropped
-                                tracing::info!("Task {} is closed by other", id);
-                                break Ok(());
-                            }
+        let content = self.pending_notification[0].to_string();
+        let editor = self.editor.clone();
+        let interval = self.interval;
+
+        // move self into the new tokio task
+        tokio::spawn(self.spawn(id, bot));
+
+        TaskInfo {
+            interval,
+            content,
+            editor: Editor(editor),
+        }
+    }
+
+    async fn spawn(mut self, id: u32, bot: AutoSend<Bot>) -> Result<()> {
+        let mut ticker = tok_time::interval(Duration::from_secs(self.interval));
+        loop {
+            tokio::select! {
+                // receive edit message
+                edit = self.editor_rx.recv() => {
+                    tracing::info!("Editing task {}", id);
+                    match edit {
+                        // Some(TaskEditType::AddNotification(s)) => {
+                        //     self.pending_notification.push(s);
+                        // },
+                        Some(TaskEditType::ShutdownTask) => {
+                            tracing::info!("Task {} is shutdown", id);
+                            return Ok(());
+                        }
+                        None => {
+                            // Editor channel might be shutdown when the value is dropped
+                            tracing::info!("Task {} is closed by other", id);
+                            return Ok(());
                         }
                     }
+                }
 
-                    // new ticker received
-                    _ = ticker.tick() => {
-                        tracing::trace!("schedule task {} start sending notification", id);
+                // new ticker received
+                _ = ticker.tick() => {
+                    tracing::trace!("schedule task {} start sending notification", id);
 
-                        // clone once for move between thread
-                        let text = Arc::new(self.pending_notification[0].to_owned());
-                        let buttons = self.msg_buttons.as_ref().unwrap();
+                    // clone once for move between thread
+                    let text = Arc::new(self.pending_notification[0].to_owned());
+                    let buttons = self.msg_buttons.as_ref().unwrap();
 
-                        for gid in self.groups.iter() {
-                            let bot = bot.clone();
-                            let text = text.clone();
-                            let gid = gid.0;
-                            let group_id = ChatId(gid);
-                            tracing::trace!("Going to send {:?} to {:?}", text, gid);
-                            bot.send_message(group_id, text.as_str())
-                                .reply_markup(buttons.clone())
-                                .await?;
-                        }
-
-                        // wait for all send message done for their jobs
+                    for gid in self.groups.iter() {
+                        let bot = bot.clone();
+                        let text = text.clone();
+                        let gid = gid.0;
+                        let group_id = ChatId(gid);
+                        tracing::trace!("Going to send {:?} to {:?}", text, gid);
+                        bot.send_message(group_id, text.as_str())
+                            .reply_markup(buttons.clone())
+                            .await?;
                     }
                 }
             }
-        });
-
-        TaskInfo {
-            interval: self.interval,
-            content: skim,
-            editor: Editor(self.editor),
         }
     }
 }
