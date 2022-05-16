@@ -407,7 +407,9 @@ async fn del_task_handler(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) 
   let text = msg.text().ok_or_else(|| anyhow::anyhow!("非法字符！"))?;
   let args = text.split(' ').skip(1).collect::<Vec<&str>>();
   if args.is_empty() {
-    anyhow::bail!("需要 id 才能删除任务！，你可以用 /listtask 查看任务 id");
+    let reply = "需要 id 才能删除任务！，你可以用 /listtask 查看任务 id";
+    bot.send_message(msg.chat.id, reply).await?;
+    anyhow::bail!("No task id specify");
   }
   let id = args[0];
   let id = match id.parse::<u32>() {
