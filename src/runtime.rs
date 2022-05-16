@@ -6,14 +6,14 @@ use teloxide::types::{ChatId, UserId};
 use tokio::sync::broadcast;
 
 /// Whitelist store context for authorization
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Whitelist {
   /// Maintainers can grant admin, manage bot
   pub maintainers: Vec<UserId>,
   /// Admins can manage bot
   pub admins: Vec<UserId>,
   /// List of groups that bot make response
-  pub groups: Arc<Vec<ChatId>>,
+  pub groups: Vec<ChatId>,
 }
 
 impl Default for Whitelist {
@@ -27,13 +27,28 @@ impl Whitelist {
     Self {
       maintainers: vec![UserId(649191333)],
       admins: Vec::new(),
-      groups: Arc::new(vec![ChatId(649191333)]),
+      groups: vec![ChatId(649191333)],
     }
   }
 
   /// Test if the user is one of the maintainers or admins.
   pub fn has_access(&self, user: UserId) -> bool {
     self.maintainers.iter().any(|&id| id == user) || self.admins.iter().any(|&id| id == user)
+  }
+
+  pub fn maintainers(mut self, m: Vec<u64>) -> Self {
+    self.maintainers = m.iter().map(|x| UserId(*x)).collect();
+    self
+  }
+
+  pub fn admins(mut self, m: Vec<u64>) -> Self {
+    self.admins = m.iter().map(|x| UserId(*x)).collect();
+    self
+  }
+
+  pub fn groups(mut self, g: Vec<i64>) -> Self {
+    self.groups = g.iter().map(|x| ChatId(*x)).collect();
+    self
   }
 }
 
@@ -56,7 +71,7 @@ impl Clone for BotRuntime {
 
 impl BotRuntime {
   /// get_group lock the RwLock in read mode, return a Atomic reference to the groups array
-  pub fn get_group(&self) -> Arc<Vec<ChatId>> {
+  pub fn get_group(&self) -> Vec<ChatId> {
     let wt = self.whitelist.read();
     wt.groups.clone()
   }
@@ -75,5 +90,10 @@ impl BotRuntime {
   /// Subscribe a signal to know if the BotRuntime get shutdown
   pub fn subscribe_shut_sig(&self) -> broadcast::Receiver<u8> {
     self.shutdown_sig.subscribe()
+  }
+
+  pub fn whitelist(mut self, wt: Whitelist) -> Self {
+    self.whitelist = Arc::new(RwLock::new(wt));
+    self
   }
 }

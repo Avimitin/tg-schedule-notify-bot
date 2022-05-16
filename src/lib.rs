@@ -1,5 +1,7 @@
+mod config;
 pub mod handler;
 mod runtime;
 mod schedule;
 
-pub use runtime::BotRuntime;
+pub use config::Config;
+pub use runtime::{BotRuntime, Whitelist};
