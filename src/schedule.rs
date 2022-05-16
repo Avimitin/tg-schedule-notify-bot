@@ -174,13 +174,13 @@ impl ScheduleTask {
                             //     self.pending_notification.push(s);
                             // },
                             Some(TaskEditType::ShutdownTask) => {
+                                tracing::info!("Task {} is shutdown", id);
                                 break Ok(())
                             }
                             None => {
-                                tracing::error!("Task {} is closed", id);
-                                break Err(anyhow::anyhow!(
-                                        "Task {} editor channel closed unexpectedly", id
-                                    ));
+                                // Editor channel might be shutdown when the value is dropped
+                                tracing::info!("Task {} is closed by other", id);
+                                break Ok(());
                             }
                         }
                     }
