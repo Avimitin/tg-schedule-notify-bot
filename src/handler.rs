@@ -311,6 +311,7 @@ async fn button_callback_handler(
             let task = ScheduleTask::new()
                 .interval(interval)
                 .pending_notification(vec![text])
+                .groups(rt.get_group().to_vec())
                 .msg_buttons(buttons);
             rt.task_pool.add_task(task);
             bot.send_message(chat_id, "你已提交了任务！").await?;

@@ -1,26 +1,40 @@
 use anyhow::Result;
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use teloxide::payloads::SendMessageSetters;
 use teloxide::types::InlineKeyboardMarkup;
 use teloxide::{prelude::*, types::ChatId};
 use tokio::sync::{mpsc, watch};
 use tokio::time as tok_time;
 use tracing::{debug, error};
 
-#[derive(Clone)]
+/// A global counter to assign unique id for task
+static TASK_INC_ID: AtomicU32 = AtomicU32::new(0);
+
 /// TaskPool store tasks and a copy of bot.
 pub struct TaskPool {
-    inc: u32,
     pool: Arc<RwLock<HashMap<u32, TaskInfo>>>,
     bot: AutoSend<Bot>,
 }
 
+impl Clone for TaskPool {
+    fn clone(&self) -> Self {
+        Self {
+            pool: Arc::clone(&self.pool),
+            bot: self.bot.clone(),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct TaskInfo {
     interval: u64,
     content: String,
     sig: ShutdownSig,
+    editor: Editor,
 }
 
 impl TaskPool {
@@ -29,7 +43,6 @@ impl TaskPool {
         Self {
             pool: Arc::new(RwLock::new(HashMap::new())),
             bot,
-            inc: 0,
         }
     }
 
@@ -38,9 +51,10 @@ impl TaskPool {
     pub fn add_task(&mut self, task: ScheduleTask) {
         // lock the pool and write to it
         let mut pool = self.pool.write();
-        let task = task.run(pool.len() + 1, self.bot.clone());
-        self.inc += 1;
-        pool.insert(self.inc, task);
+        let id = TASK_INC_ID.fetch_add(1, Ordering::SeqCst);
+        let task = task.run(id, self.bot.clone());
+        // this cast might be safe, as user will not create int max 32bit task
+        pool.insert(id, task);
     }
 
     /// List current running task, return a list of (id, interval, skim content)
@@ -65,7 +79,7 @@ impl TaskPool {
 }
 
 /// A wrapper for tokio::watch::Sender. For shutdown tokio task.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ShutdownSig(Arc<watch::Sender<u8>>);
 
 impl ShutdownSig {
@@ -76,12 +90,13 @@ impl ShutdownSig {
     }
 }
 
-pub struct Editor(Arc<mpsc::Sender<TaskEditType>>);
+#[derive(Clone, Debug)]
+pub struct Editor(mpsc::Sender<TaskEditType>);
 
 /// A unit of a repeating notify task
 pub struct ScheduleTask {
     /// Task id
-    id: usize,
+    id: u32,
     /// Repeat interval, in minute unit
     interval: u64,
     /// A pool of notifications
@@ -142,16 +157,19 @@ impl ScheduleTask {
         self
     }
 
+    pub fn groups(mut self, groups: Vec<ChatId>) -> Self {
+        self.groups = groups;
+        self
+    }
+
     /// Spawn a new tokio task to run a forever loop. It will notify when the ticker send a tick.
     /// Task will consume itself and return necessary information about the task
-    pub fn run(mut self, id: usize, bot: AutoSend<Bot>) -> TaskInfo {
+    pub fn run(mut self, id: u32, bot: AutoSend<Bot>) -> TaskInfo {
         // copy a skim of the content for describing this task
         let skim = self.pending_notification[0].to_string();
         let _: tokio::task::JoinHandle<Result<()>> = tokio::spawn(async move {
             let mut ticker = tok_time::interval(Duration::from_secs(self.interval));
             loop {
-                debug!("schedule task {} start sending notification", id);
-
                 tokio::select! {
                     // receive shutdown signal
                     _ = self.signal_rx.changed() => {
@@ -168,34 +186,33 @@ impl ScheduleTask {
                             },
                             None => {
                                 tracing::error!("Task {} is closed", id);
+                                break Err(anyhow::anyhow!(
+                                        "Task {} editor channel closed unexpectedly", id
+                                    ));
                             }
                         }
                     }
 
                     // new ticker received
                     _ = ticker.tick() => {
-                        let mut wg = Vec::new();
+                        tracing::trace!("schedule task {} start sending notification", id);
+
                         // clone once for move between thread
                         let text = Arc::new(self.pending_notification[0].to_owned());
+                        let buttons = self.msg_buttons.as_ref().unwrap();
 
                         for gid in self.groups.iter() {
                             let bot = bot.clone();
                             let text = text.clone();
                             let gid = gid.0;
-                            let join = tokio::spawn(async move {
-                                let group_id = ChatId(gid);
-                                bot.send_message(group_id, text.as_str()).await
-                            });
-                            wg.push(join);
+                            let group_id = ChatId(gid);
+                            tracing::trace!("Going to send {:?} to {:?}", text, gid);
+                            bot.send_message(group_id, text.as_str())
+                                .reply_markup(buttons.clone())
+                                .await?;
                         }
 
                         // wait for all send message done for their jobs
-                        for j in wg {
-                            match j.await? {
-                                Ok(_) => {},
-                                Err(e) => error!("Fail to send hey: {}", e),
-                            };
-                        }
                     }
                 }
             }
@@ -205,6 +222,7 @@ impl ScheduleTask {
             interval: self.interval,
             content: skim,
             sig: ShutdownSig(Arc::new(self.signal)),
+            editor: Editor(self.editor.clone()),
         }
     }
 
