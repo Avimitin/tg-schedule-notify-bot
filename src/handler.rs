@@ -408,7 +408,7 @@ async fn del_task_handler(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) 
             anyhow::bail!("parsing {id}: {e}");
         }
     };
-    match rt.task_pool.remove(id) {
+    match rt.task_pool.remove(id).await {
         Ok(_) => {
             bot.send_message(msg.chat.id, "删除成功").await?;
         }

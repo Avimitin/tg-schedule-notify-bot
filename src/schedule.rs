@@ -7,9 +7,9 @@ use std::time::Duration;
 use teloxide::payloads::SendMessageSetters;
 use teloxide::types::InlineKeyboardMarkup;
 use teloxide::{prelude::*, types::ChatId};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::mpsc;
 use tokio::time as tok_time;
-use tracing::{debug, error};
+use tracing::error;
 
 /// A global counter to assign unique id for task
 static TASK_INC_ID: AtomicU32 = AtomicU32::new(0);
@@ -33,7 +33,6 @@ impl Clone for TaskPool {
 pub struct TaskInfo {
     interval: u64,
     content: String,
-    sig: ShutdownSig,
     editor: Editor,
 }
 
@@ -66,26 +65,17 @@ impl TaskPool {
             .collect()
     }
 
-    /// Stop a task, and remove it from pool
-    pub fn remove(&mut self, index: u32) -> Result<()> {
+    fn remove_task(&mut self, index: u32) -> Result<TaskInfo> {
         let mut pool = self.pool.write();
-        if !pool.contains_key(&index) {
-            anyhow::bail!("Index invalid");
-        }
-        let task = pool.remove(&index).unwrap();
-        task.sig.shutdown()?;
-        Ok(())
+        Ok(pool
+            .remove(&index)
+            .ok_or_else(|| anyhow::anyhow!("Invalid index, no task found"))?)
     }
-}
 
-/// A wrapper for tokio::watch::Sender. For shutdown tokio task.
-#[derive(Clone, Debug)]
-pub struct ShutdownSig(Arc<watch::Sender<u8>>);
-
-impl ShutdownSig {
-    /// Send a shutdown signal
-    pub fn shutdown(&self) -> Result<()> {
-        self.0.send(1)?;
+    /// Stop a task, and remove it from pool
+    pub async fn remove(&mut self, index: u32) -> Result<()> {
+        let task = self.remove_task(index)?;
+        task.editor.shutdown().await;
         Ok(())
     }
 }
@@ -93,18 +83,22 @@ impl ShutdownSig {
 #[derive(Clone, Debug)]
 pub struct Editor(mpsc::Sender<TaskEditType>);
 
+impl Editor {
+    pub async fn shutdown(&self) {
+        if let Err(e) = self.0.send(TaskEditType::ShutdownTask).await {
+            error!("Task has a unexpected closed edit channel: {e}")
+        }
+    }
+}
+
 /// A unit of a repeating notify task
 pub struct ScheduleTask {
-    /// Task id
-    id: u32,
     /// Repeat interval, in minute unit
     interval: u64,
     /// A pool of notifications
     pending_notification: Vec<String>,
     /// A button set to attached on message
     msg_buttons: Option<InlineKeyboardMarkup>,
-    /// A signal to close this task
-    signal: watch::Sender<u8>,
     /// A channel to edit this task
     editor: mpsc::Sender<TaskEditType>,
     /// A list of chat id
@@ -112,7 +106,6 @@ pub struct ScheduleTask {
 
     // Temporary storage for channel receive, don't touch it!
     editor_rx: mpsc::Receiver<TaskEditType>,
-    signal_rx: watch::Receiver<u8>,
 }
 
 #[derive(Debug)]
@@ -120,24 +113,21 @@ pub struct ScheduleTask {
 enum TaskEditType {
     /// AddNotification describe a add notification behavior. It will add a new notification
     /// text into the task storage.
-    AddNotification(String),
+    // AddNotification(String),
+    /// ShutdownTask describe that this task should be closed
+    ShutdownTask,
 }
 
 impl ScheduleTask {
     pub fn new() -> Self {
-        let (tx, rx) = watch::channel(0);
-        let (editor, editor_rx) = mpsc::channel(3);
+        let (editor, editor_rx) = mpsc::channel(5);
         Self {
-            id: 0,
             interval: 0,
             pending_notification: Vec::new(),
             msg_buttons: None,
             groups: Vec::new(),
 
-            signal: tx,
             editor,
-
-            signal_rx: rx,
             editor_rx,
         }
     }
@@ -171,19 +161,16 @@ impl ScheduleTask {
             let mut ticker = tok_time::interval(Duration::from_secs(self.interval));
             loop {
                 tokio::select! {
-                    // receive shutdown signal
-                    _ = self.signal_rx.changed() => {
-                        tracing::info!("Schedule Task {} stop the jobs", id);
-                        return Ok(())
-                    }
-
                     // receive edit message
                     edit = self.editor_rx.recv() => {
                         tracing::info!("Editing task {}", id);
                         match edit {
-                            Some(TaskEditType::AddNotification(s)) => {
-                                self.pending_notification.push(s);
-                            },
+                            // Some(TaskEditType::AddNotification(s)) => {
+                            //     self.pending_notification.push(s);
+                            // },
+                            Some(TaskEditType::ShutdownTask) => {
+                                break Ok(())
+                            }
                             None => {
                                 tracing::error!("Task {} is closed", id);
                                 break Err(anyhow::anyhow!(
@@ -221,24 +208,7 @@ impl ScheduleTask {
         TaskInfo {
             interval: self.interval,
             content: skim,
-            sig: ShutdownSig(Arc::new(self.signal)),
             editor: Editor(self.editor.clone()),
         }
-    }
-
-    /// Send a to the spawed task to stop the task.
-    pub fn stop(&self) {
-        match self.signal.send(1) {
-            Ok(_) => {}
-            Err(e) => error!("fail to stop schedule task {}: {}", self.id, e),
-        };
-    }
-
-    /// A wrapper function to add a new notification text to the task
-    pub async fn add_notification(&self, s: String) {
-        self.editor
-            .send(TaskEditType::AddNotification(s))
-            .await
-            .unwrap();
     }
 }
