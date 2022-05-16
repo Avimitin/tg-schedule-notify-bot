@@ -1,8 +1,10 @@
 use crate::schedule::TaskPool;
+use anyhow::Result;
 use parking_lot::RwLock;
 use std::sync::Arc;
 use teloxide::prelude::*;
 use teloxide::types::{ChatId, UserId};
+use tokio::fs;
 use tokio::sync::broadcast;
 
 /// Whitelist store context for authorization
@@ -36,6 +38,11 @@ impl Whitelist {
     self.maintainers.iter().any(|&id| id == user) || self.admins.iter().any(|&id| id == user)
   }
 
+  pub fn is_maintainers(&self, user: u64) -> bool {
+    let user = UserId(user);
+    self.maintainers.iter().any(|&id| id == user)
+  }
+
   pub fn maintainers(mut self, m: Vec<u64>) -> Self {
     self.maintainers = m.iter().map(|x| UserId(*x)).collect();
     self
@@ -49,6 +56,47 @@ impl Whitelist {
   pub fn groups(mut self, g: Vec<i64>) -> Self {
     self.groups = g.iter().map(|x| ChatId(*x)).collect();
     self
+  }
+
+  pub async fn save(&self) -> Result<()> {
+    let file = ".env";
+    // we can guarantee that when we save the config, teloxide token is already init
+    let content = vec![
+      format!(
+        "TELOXIDE_TOKEN={}",
+        std::env::var("TELOXIDE_TOKEN").unwrap()
+      ),
+      format!(
+        "NOTIFY_BOT_ADMINS={}",
+        self
+          .admins
+          .iter()
+          .map(|x| format!("{x}"))
+          .collect::<Vec<String>>()
+          .join(",")
+      ),
+      format!(
+        "NOTIFY_BOT_GROUPS={}",
+        self
+          .groups
+          .iter()
+          .map(|x| format!("{x}"))
+          .collect::<Vec<String>>()
+          .join(",")
+      ),
+      format!(
+        "NOTIFY_BOT_MAINTAINERS={}",
+        self
+          .maintainers
+          .iter()
+          .map(|x| format!("{x}"))
+          .collect::<Vec<String>>()
+          .join(",")
+      ),
+    ]
+    .join("\n");
+
+    Ok(fs::write(file, content).await?)
   }
 }
 
@@ -95,5 +143,31 @@ impl BotRuntime {
   pub fn whitelist(mut self, wt: Whitelist) -> Self {
     self.whitelist = Arc::new(RwLock::new(wt));
     self
+  }
+
+  pub fn add_admin(&mut self, id: u64) {
+    let mut wt = self.whitelist.write();
+    wt.admins.sort_unstable();
+    wt.admins.push(UserId(id));
+  }
+
+  pub fn del_admin(&mut self, id: u64) -> Result<()> {
+    let mut wt = self.whitelist.write();
+    let i = wt
+      .admins
+      .binary_search(&UserId(id))
+      .map_err(|_| anyhow::anyhow!("User not exist!"))?;
+    wt.admins.remove(i);
+    Ok(())
+  }
+
+  fn copy_whitelist(&self) -> Whitelist {
+    let wt = self.whitelist.read();
+    wt.clone()
+  }
+
+  pub async fn save_whitelist(&self) -> Result<()> {
+    let wt = self.copy_whitelist();
+    wt.save().await
   }
 }

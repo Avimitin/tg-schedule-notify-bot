@@ -8,7 +8,7 @@ use teloxide::{
   },
   payloads::SendMessageSetters,
   prelude::*,
-  types::{InlineKeyboardButton, InlineKeyboardMarkup, UserId},
+  types::{InlineKeyboardButton, InlineKeyboardMarkup},
   utils::command::BotCommands,
 };
 
@@ -348,6 +348,14 @@ enum Command {
   ListTask,
   #[command(description = "删除指定的任务。")]
   DelTask,
+  #[command(description = "添加一个新的 bot 管理员（维护者专用）")]
+  AddAdmin,
+  #[command(description = "删除 bot 管理员（维护者专用）")]
+  DelAdmin,
+  #[command(description = "添加一个新的通知群")]
+  AddGroup,
+  #[command(description = "删除通知群")]
+  DelGroup,
 }
 
 /// Response command man page
@@ -437,20 +445,110 @@ async fn del_task_handler(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) 
   Ok(())
 }
 
+async fn add_admin(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) -> Result<()> {
+  let text = msg.text().ok_or_else(|| anyhow::anyhow!("非法字符！"))?;
+  let args = text.split(' ').skip(1).collect::<Vec<&str>>();
+  if args.is_empty() {
+    let reply = "需要用户 ID 才能添加管理员！";
+    bot.send_message(msg.chat.id, reply).await?;
+    anyhow::bail!("No task id specify");
+  }
+
+  let id = args[0];
+  let id = match id.parse::<u64>() {
+    Ok(i) => i,
+    Err(e) => {
+      bot
+        .send_message(msg.chat.id, format! {"{id} 不是一个合法的数字！"})
+        .await?;
+      anyhow::bail!("parsing {id}: {e}");
+    }
+  };
+
+  rt.add_admin(id);
+  let msg = bot
+    .send_message(msg.chat.id, "添加完成，正在保存...")
+    .await?;
+  rt.save_whitelist().await?;
+  bot
+    .edit_message_text(msg.chat.id, msg.id, "保存完成。")
+    .await?;
+
+  Ok(())
+}
+
+async fn del_admin(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) -> Result<()> {
+  let text = msg.text().ok_or_else(|| anyhow::anyhow!("非法字符！"))?;
+  let args = text.split(' ').skip(1).collect::<Vec<&str>>();
+  if args.is_empty() {
+    let reply = "需要用户 ID 才能删除管理员！";
+    bot.send_message(msg.chat.id, reply).await?;
+    anyhow::bail!("No task id specify");
+  }
+
+  let id = args[0];
+  let id = match id.parse::<u64>() {
+    Ok(i) => i,
+    Err(e) => {
+      bot
+        .send_message(msg.chat.id, format! {"{id} 不是一个合法的数字！"})
+        .await?;
+      anyhow::bail!("parsing {id}: {e}");
+    }
+  };
+
+  if let Err(e) = rt.del_admin(id) {
+    bot
+      .send_message(msg.chat.id, "用户不存在！请重新确认 id")
+      .await?;
+    anyhow::bail!("fail to delete user: {e}")
+  };
+
+  let msg = bot
+    .send_message(msg.chat.id, "删除完成，正在保存...")
+    .await?;
+  rt.save_whitelist().await?;
+  bot
+    .edit_message_text(msg.chat.id, msg.id, "保存完成。")
+    .await?;
+
+  Ok(())
+}
+
 /// Build the bot message handle logic
 pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
+  let can_process_admin = |msg: &Message, rt: &BotRuntime| -> bool {
+    let id = match msg.from() {
+      Some(user) => user.id,
+      None => return false,
+    };
+    let whitelist = rt.whitelist.read();
+    whitelist.is_maintainers(id.0)
+  };
+
   // build the command handler
   let command_handler = teloxide::filter_command::<Command, _>().branch(
     dptree::case![AddTaskDialogueCurrentState::None]
+      // admins accessible commands
       .branch(dptree::case![Command::Help].endpoint(help))
       .branch(dptree::case![Command::Start].endpoint(help))
       .branch(dptree::case![Command::AddTask].endpoint(add_task_handler))
       .branch(dptree::case![Command::ListTask].endpoint(list_task_handler))
-      .branch(dptree::case![Command::DelTask].endpoint(del_task_handler)),
+      .branch(dptree::case![Command::DelTask].endpoint(del_task_handler))
+      .branch(
+        // Maintainer only commands
+        dptree::filter(move |msg: Message, rt: BotRuntime| can_process_admin(&msg, &rt))
+          .branch(dptree::case![Command::AddAdmin].endpoint(add_admin))
+          .branch(dptree::case![Command::DelAdmin].endpoint(del_admin)),
+      ),
   );
 
   // test if the user has access to the bot
-  let has_access = |msg: &Message, id: UserId, rt: &BotRuntime| -> bool {
+  let has_access = |msg: &Message, rt: &BotRuntime| -> bool {
+    let id = match msg.from() {
+      Some(user) => user.id,
+      None => return false,
+    };
     let whitelist = rt.whitelist.read();
     // if it is in chat, and it is maintainer/admin calling
     msg.chat.is_private() && whitelist.has_access(id)
@@ -459,27 +557,21 @@ pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
   // build the text message handler
   let message_handler = Update::filter_message().branch(
     // basic auth
-    dptree::filter(move |msg: Message, rt: BotRuntime| {
-      let id = match msg.from() {
-        Some(user) => user.id,
-        None => return false,
-      };
-      has_access(&msg, id, &rt)
-    })
-    // enter command filter
-    .branch(command_handler)
-    // handle non command message
-    .branch(
-      dptree::case![AddTaskDialogueCurrentState::RequestNotifyText].endpoint(request_notify_text),
-    )
-    .branch(
-      dptree::case![AddTaskDialogueCurrentState::RequestRepeatInterval { text }]
-        .endpoint(request_repeat_interval),
-    )
-    .branch(
-      dptree::case![AddTaskDialogueCurrentState::RequestButtons { text, interval }]
-        .endpoint(request_buttons),
-    ),
+    dptree::filter(move |msg: Message, rt: BotRuntime| has_access(&msg, &rt))
+      // enter command filter
+      .branch(command_handler)
+      // handle non command message
+      .branch(
+        dptree::case![AddTaskDialogueCurrentState::RequestNotifyText].endpoint(request_notify_text),
+      )
+      .branch(
+        dptree::case![AddTaskDialogueCurrentState::RequestRepeatInterval { text }]
+          .endpoint(request_repeat_interval),
+      )
+      .branch(
+        dptree::case![AddTaskDialogueCurrentState::RequestButtons { text, interval }]
+          .endpoint(request_buttons),
+      ),
   );
 
   // build the callback handler
