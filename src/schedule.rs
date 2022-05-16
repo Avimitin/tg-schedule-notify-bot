@@ -166,7 +166,7 @@ impl ScheduleTask {
         let interval = self.interval;
 
         // move self into the new tokio task
-        tokio::spawn(self.spawn(id, bot));
+        tokio::spawn(self.into_background(id, bot));
 
         TaskInfo {
             interval,
@@ -175,7 +175,7 @@ impl ScheduleTask {
         }
     }
 
-    async fn spawn(mut self, id: u32, bot: AutoSend<Bot>) -> Result<()> {
+    async fn into_background(mut self, id: u32, bot: AutoSend<Bot>) -> Result<()> {
         let mut ticker = tok_time::interval(Duration::from_secs(self.interval));
         loop {
             tokio::select! {
