@@ -41,7 +41,6 @@ impl Whitelist {
 pub struct BotRuntime {
     pub whitelist: Arc<RwLock<Whitelist>>,
     shutdown_sig: Arc<broadcast::Sender<u8>>,
-    bot_username: String,
     pub task_pool: TaskPool,
 }
 
@@ -50,7 +49,6 @@ impl Clone for BotRuntime {
         Self {
             whitelist: Arc::clone(&self.whitelist),
             shutdown_sig: Arc::clone(&self.shutdown_sig),
-            bot_username: self.bot_username.clone(),
             task_pool: self.task_pool.clone(),
         }
     }
@@ -64,13 +62,12 @@ impl BotRuntime {
     }
 
     /// Create a new runtime with activated bot and bot username.
-    pub fn new(bot: AutoSend<Bot>, username: String) -> Self {
+    pub fn new(bot: AutoSend<Bot>) -> Self {
         let (tx, _) = broadcast::channel(5);
 
         Self {
             whitelist: Arc::new(RwLock::new(Whitelist::new())),
             shutdown_sig: Arc::new(tx),
-            bot_username: username,
             task_pool: TaskPool::new(bot),
         }
     }
@@ -78,10 +75,5 @@ impl BotRuntime {
     /// Subscribe a signal to know if the BotRuntime get shutdown
     pub fn subscribe_shut_sig(&self) -> broadcast::Receiver<u8> {
         self.shutdown_sig.subscribe()
-    }
-
-    /// Return a reference to the bot username
-    pub fn username(&self) -> &str {
-        &self.bot_username
     }
 }

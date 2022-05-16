@@ -16,7 +16,7 @@ async fn main() -> Result<()> {
     info!("Bot {} start running", username);
 
     // setup bot runtime
-    let runtime = BotRuntime::new(bot.clone(), username);
+    let runtime = BotRuntime::new(bot.clone());
 
     // setup handler
     Dispatcher::builder(bot.clone(), handler_schema())
