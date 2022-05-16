@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::{schedule::ScheduleTask, BotRuntime};
 use anyhow::Result;
 use regex::Regex;
@@ -8,7 +10,7 @@ use teloxide::{
   },
   payloads::SendMessageSetters,
   prelude::*,
-  types::{InlineKeyboardButton, InlineKeyboardMarkup},
+  types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup},
   utils::command::BotCommands,
 };
 
@@ -409,26 +411,33 @@ async fn list_task_handler(msg: Message, bot: AutoSend<Bot>, rt: BotRuntime) -> 
   Ok(())
 }
 
+fn parse_first_arg_as_num<T: FromStr>(text: &str) -> Option<T> {
+  let args = text.split(' ').skip(1).collect::<Vec<&str>>();
+  if args.is_empty() {
+    return None;
+  }
+
+  args[0].parse::<T>().ok()
+}
+
 /// Handler for /deltask command.
 async fn del_task_handler(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) -> Result<()> {
   bot.send_message(msg.chat.id, "正在删除任务").await?;
   let text = msg.text().ok_or_else(|| anyhow::anyhow!("非法字符！"))?;
-  let args = text.split(' ').skip(1).collect::<Vec<&str>>();
-  if args.is_empty() {
-    let reply = "需要 id 才能删除任务！，你可以用 /listtask 查看任务 id";
-    bot.send_message(msg.chat.id, reply).await?;
-    anyhow::bail!("No task id specify");
-  }
-  let id = args[0];
-  let id = match id.parse::<u32>() {
-    Ok(i) => i,
-    Err(e) => {
+
+  let id: u32 = match parse_first_arg_as_num(text) {
+    Some(id) => id,
+    None => {
       bot
-        .send_message(msg.chat.id, format! {"{id} 不是一个合法的数字！"})
+        .send_message(
+          msg.chat.id,
+          "错误的任务 id！你可以用 /listtask 命令来查看任务 id",
+        )
         .await?;
-      anyhow::bail!("parsing {id}: {e}");
+      anyhow::bail!("Invalid task id arguments")
     }
   };
+
   match rt.task_pool.remove(id).await {
     Ok(_) => {
       bot.send_message(msg.chat.id, "删除成功").await?;
@@ -447,21 +456,14 @@ async fn del_task_handler(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) 
 
 async fn add_admin(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) -> Result<()> {
   let text = msg.text().ok_or_else(|| anyhow::anyhow!("非法字符！"))?;
-  let args = text.split(' ').skip(1).collect::<Vec<&str>>();
-  if args.is_empty() {
-    let reply = "需要用户 ID 才能添加管理员！";
-    bot.send_message(msg.chat.id, reply).await?;
-    anyhow::bail!("No task id specify");
-  }
 
-  let id = args[0];
-  let id = match id.parse::<u64>() {
-    Ok(i) => i,
-    Err(e) => {
+  let id: u64 = match parse_first_arg_as_num(text) {
+    Some(id) => id,
+    None => {
       bot
-        .send_message(msg.chat.id, format! {"{id} 不是一个合法的数字！"})
+        .send_message(msg.chat.id, "错误的用户 id！参考用法： /addadmin 123456789")
         .await?;
-      anyhow::bail!("parsing {id}: {e}");
+      anyhow::bail!("Invalid admin id");
     }
   };
 
@@ -479,21 +481,14 @@ async fn add_admin(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) -> Resu
 
 async fn del_admin(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) -> Result<()> {
   let text = msg.text().ok_or_else(|| anyhow::anyhow!("非法字符！"))?;
-  let args = text.split(' ').skip(1).collect::<Vec<&str>>();
-  if args.is_empty() {
-    let reply = "需要用户 ID 才能删除管理员！";
-    bot.send_message(msg.chat.id, reply).await?;
-    anyhow::bail!("No task id specify");
-  }
 
-  let id = args[0];
-  let id = match id.parse::<u64>() {
-    Ok(i) => i,
-    Err(e) => {
+  let id: u64 = match parse_first_arg_as_num(text) {
+    Some(id) => id,
+    None => {
       bot
-        .send_message(msg.chat.id, format! {"{id} 不是一个合法的数字！"})
+        .send_message(msg.chat.id, "错误的用户 id！参考用法： /deladmin 123456789")
         .await?;
-      anyhow::bail!("parsing {id}: {e}");
+      anyhow::bail!("Invalid admin id");
     }
   };
 
@@ -503,6 +498,80 @@ async fn del_admin(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) -> Resu
       .await?;
     anyhow::bail!("fail to delete user: {e}")
   };
+
+  let msg = bot
+    .send_message(msg.chat.id, "删除完成，正在保存...")
+    .await?;
+  rt.save_whitelist().await?;
+  bot
+    .edit_message_text(msg.chat.id, msg.id, "保存完成。")
+    .await?;
+
+  Ok(())
+}
+
+async fn add_group_handler(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) -> Result<()> {
+  let text = msg.text().ok_or_else(|| anyhow::anyhow!("非法字符！"))?;
+
+  let id: i64 = match parse_first_arg_as_num(text) {
+    Some(i) => i,
+    None => {
+      bot
+        .send_message(
+          msg.chat.id,
+          "错误的输入！你应该输入群组的 id。参考例子：/addgroup -1234567",
+        )
+        .await?;
+      anyhow::bail!("Invalid group id input")
+    }
+  };
+
+  // validate group id
+  let result = bot.send_message(ChatId(id), "群组测试").await;
+  if let Err(e) = result {
+    bot
+      .send_message(
+        msg.chat.id,
+        "无法加入 id 为 {id} 的群组：{e}\n\n提示：是不是没把 bot 拉进群？",
+      )
+      .await?;
+    anyhow::bail!("Fail to add group id {id}: {e}");
+  }
+
+  rt.add_group(id);
+
+  let msg = bot
+    .send_message(msg.chat.id, "添加完成，正在保存...")
+    .await?;
+  rt.save_whitelist().await?;
+  bot
+    .edit_message_text(msg.chat.id, msg.id, "保存完成。")
+    .await?;
+
+  Ok(())
+}
+
+async fn del_group_handler(msg: Message, bot: AutoSend<Bot>, mut rt: BotRuntime) -> Result<()> {
+  let text = msg.text().ok_or_else(|| anyhow::anyhow!("非法字符！"))?;
+  let id: i64 = match parse_first_arg_as_num(text) {
+    Some(i) => i,
+    None => {
+      bot
+        .send_message(
+          msg.chat.id,
+          "错误的输入！你应该输入群组的 id。参考例子：/delgroup -1234567",
+        )
+        .await?;
+      anyhow::bail!("Invalid group id input")
+    }
+  };
+
+  if let Err(e) = rt.del_group(id) {
+    bot
+      .send_message(msg.chat.id, "群组不存在！请重新确认 id")
+      .await?;
+    anyhow::bail!("fail to delete user: {e}")
+  }
 
   let msg = bot
     .send_message(msg.chat.id, "删除完成，正在保存...")
@@ -535,6 +604,8 @@ pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
       .branch(dptree::case![Command::AddTask].endpoint(add_task_handler))
       .branch(dptree::case![Command::ListTask].endpoint(list_task_handler))
       .branch(dptree::case![Command::DelTask].endpoint(del_task_handler))
+      .branch(dptree::case![Command::AddGroup].endpoint(add_group_handler))
+      .branch(dptree::case![Command::DelGroup].endpoint(del_group_handler))
       .branch(
         // Maintainer only commands
         dptree::filter(move |msg: Message, rt: BotRuntime| can_process_admin(&msg, &rt))

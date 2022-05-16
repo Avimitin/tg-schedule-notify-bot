@@ -147,8 +147,8 @@ impl BotRuntime {
 
   pub fn add_admin(&mut self, id: u64) {
     let mut wt = self.whitelist.write();
-    wt.admins.sort_unstable();
     wt.admins.push(UserId(id));
+    wt.admins.sort_unstable();
   }
 
   pub fn del_admin(&mut self, id: u64) -> Result<()> {
@@ -158,6 +158,22 @@ impl BotRuntime {
       .binary_search(&UserId(id))
       .map_err(|_| anyhow::anyhow!("User not exist!"))?;
     wt.admins.remove(i);
+    Ok(())
+  }
+
+  pub fn add_group(&mut self, gid: i64) {
+    let mut wt = self.whitelist.write();
+    wt.groups.push(ChatId(gid));
+    wt.groups.sort_unstable();
+  }
+
+  pub fn del_group(&mut self, gid: i64) -> Result<()> {
+    let mut wt = self.whitelist.write();
+    let i = wt
+      .groups
+      .binary_search(&ChatId(gid))
+      .map_err(|_| anyhow::anyhow!("User not exist!"))?;
+    wt.groups.remove(i);
     Ok(())
   }
 
