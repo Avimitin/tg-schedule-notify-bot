@@ -25,7 +25,7 @@ export NOTIFY_BOT_GROUPS=-123456,-7891011
 ./notify-bot
 ```
 
-- Or run the bot as a dawmon
+- Or run the bot as a daemon
 
 ```bash
 # Install exec
