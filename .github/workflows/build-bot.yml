@@ -2,7 +2,10 @@ name: 'Build Notify Bot'
 
 on:
   push:
-    branches: [master]
+    paths:
+      - ".github/workflows/build-bot.yml"
+      - "src/**"
+      - "Cargo.toml"
 
 jobs:
   build:
@@ -28,7 +31,7 @@ jobs:
       - name: Install toolchain
         uses: actions-rs/toolchain@v1
         with:
-          component: rustfmt, clippy
+          components: rustfmt, clippy
 
       # Run cargo clippy, abort with warnings
       - name: Run cargo clippy
