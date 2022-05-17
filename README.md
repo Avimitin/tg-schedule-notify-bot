@@ -1,5 +1,17 @@
 # Notify Bot
 
+A simple and easy to use bot for sending notification in schedule.
+
+<img src="./images/apply1.png" width="25%"/>
+<img src="./images/apply2.png" width="25%"/>
+<img src="./images/result.png" width="25%"/>
+
+<br>
+<sub>
+There is a wizard for adding task,
+multiple task with different repeat interval is also supported
+</sub>
+
 ## Usage
 
 - Download program from release
