@@ -56,7 +56,7 @@ impl Whitelist {
         .map(|x| {
           x.trim()
             .parse::<T>()
-            .expect(format!("{x} is not a valid number").as_str())
+            .unwrap_or_else(|_| panic!("{x} is not a valid number"))
         })
         .collect::<Vec<T>>();
       Some(val)
