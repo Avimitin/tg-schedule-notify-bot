@@ -2,9 +2,10 @@
 
 A simple and easy to use bot for sending notification in schedule.
 
-<img src="./images/apply1.png" width="25%"/>
-<img src="./images/apply2.png" width="25%"/>
-<img src="./images/result.png" width="25%"/>
+
+|                                  |                                  |                                  |
+|----------------------------------|----------------------------------|----------------------------------|
+| <img src="./images/apply1.png"/> | <img src="./images/apply2.png"/> | <img src="./images/result.png"/> |
 
 <br>
 <sub>
