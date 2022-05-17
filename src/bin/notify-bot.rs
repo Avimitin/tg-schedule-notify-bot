@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
     .parse_groups()
     .parse_maintainers();
 
-  info!("Bot start with maintainers: {}", &whitelist);
+  info!("Current configuration: {}", &whitelist);
   // setup bot runtime
   let runtime = BotRuntime::new(bot.clone()).whitelist(whitelist);
 

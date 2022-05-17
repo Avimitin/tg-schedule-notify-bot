@@ -93,6 +93,7 @@ impl Whitelist {
   pub fn parse_maintainers(mut self) -> Self {
     if let Some(m) = Self::env_to_num_collect("NOTIFY_BOT_MAINTAINERS") {
       self.maintainers = m.iter().map(|x| UserId(*x)).collect();
+      self.maintainers.sort_unstable();
     }
 
     self
@@ -101,6 +102,7 @@ impl Whitelist {
   pub fn parse_admins(mut self) -> Self {
     if let Some(a) = Self::env_to_num_collect("NOTIFY_BOT_ADMINS") {
       self.admins = a.iter().map(|x| UserId(*x)).collect();
+      self.admins.sort_unstable();
     }
     self
   }
@@ -108,6 +110,7 @@ impl Whitelist {
   pub fn parse_groups(mut self) -> Self {
     if let Some(g) = Self::env_to_num_collect("NOTIFY_BOT_GROUPS") {
       self.groups = g.iter().map(|x| ChatId(*x)).collect();
+      self.groups.sort_unstable();
     }
     self
   }
@@ -234,7 +237,7 @@ impl BotRuntime {
     let i = wt
       .groups
       .binary_search(&ChatId(gid))
-      .map_err(|_| anyhow::anyhow!("User not exist!"))?;
+      .map_err(|_| anyhow::anyhow!("Group not exist!"))?;
     wt.groups.remove(i);
     Ok(())
   }
