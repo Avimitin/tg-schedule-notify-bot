@@ -14,7 +14,11 @@ multiple task with different repeat interval is also supported
 
 ## Usage
 
-- Download program from release
+- Download program from [actions](https://github.com/Avimitin/tg-schedule-notify-bot/actions)[^1].
+or [compile it from source](#Compile-from-source).
+
+[^1]: Click the latest actions with ✅ icons, and download file from artifacts panel.
+
 - Add configuration
 
 ```bash
