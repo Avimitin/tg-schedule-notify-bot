@@ -13,7 +13,7 @@ use teloxide::{
   prelude::*,
   types::{ChatId, InlineKeyboardMarkup},
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::time as tok_time;
 use tracing::error;
 
@@ -58,7 +58,6 @@ impl TaskPool {
     let mut pool = self.pool.write();
     let id = TASK_INC_ID.fetch_add(1, Ordering::SeqCst);
     let task = task.run(id, self.bot.clone());
-    // this cast might be safe, as user will not create int max 32bit task
     pool.insert(id, task);
   }
 
@@ -113,6 +112,7 @@ pub struct ScheduleTask {
 
   // Temporary storage for channel receive, don't touch it!
   editor_rx: mpsc::Receiver<TaskEditType>,
+  ctrl_c_sig: watch::Receiver<u8>,
 }
 
 #[derive(Debug)]
@@ -125,8 +125,8 @@ enum TaskEditType {
   ShutdownTask,
 }
 
-impl Default for ScheduleTask {
-  fn default() -> Self {
+impl ScheduleTask {
+  pub fn new(ctrl_c_sig: watch::Receiver<u8>) -> Self {
     let (editor, editor_rx) = mpsc::channel(5);
     Self {
       interval: 0,
@@ -136,13 +136,9 @@ impl Default for ScheduleTask {
 
       editor,
       editor_rx,
-    }
-  }
-}
 
-impl ScheduleTask {
-  pub fn new() -> Self {
-    Self::default()
+      ctrl_c_sig,
+    }
   }
 
   pub fn interval(mut self, interval: u64) -> Self {
@@ -204,6 +200,11 @@ impl ScheduleTask {
                 return Ok(());
             }
           }
+        }
+
+        _ = self.ctrl_c_sig.changed() => {
+          tracing::info!("Task {} receive ctrl c signal, exiting...", id);
+          return Ok(())
         }
 
         // new ticker received

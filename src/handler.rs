@@ -318,7 +318,7 @@ async fn button_callback_handler(
 
   match data.as_str() {
     "add_task_confirm_y" => {
-      let task = ScheduleTask::new()
+      let task = ScheduleTask::new(rt.subscribe_shutdown_sig())
         .interval(interval)
         .pending_notification(vec![text])
         .groups(rt.get_group().to_vec())
@@ -592,7 +592,7 @@ pub fn handler_schema() -> UpdateHandler<anyhow::Error> {
       None => return false,
     };
     let whitelist = rt.whitelist.read();
-    whitelist.is_maintainers(id.0)
+    whitelist.is_maintainers(id)
   };
 
   // build the command handler

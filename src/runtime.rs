@@ -11,10 +11,10 @@ use teloxide::{
   prelude::*,
   types::{ChatId, UserId},
 };
-use tokio::{fs, sync::broadcast};
+use tokio::{fs, sync::watch};
 
 /// Whitelist store context for authorization
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Whitelist {
   /// Maintainers can grant admin, manage bot
   pub maintainers: Vec<UserId>,
@@ -22,12 +22,6 @@ pub struct Whitelist {
   pub admins: Vec<UserId>,
   /// List of groups that bot make response
   pub groups: Vec<ChatId>,
-}
-
-impl Default for Whitelist {
-  fn default() -> Self {
-    Self::new()
-  }
 }
 
 impl Display for Whitelist {
@@ -58,24 +52,24 @@ impl Display for Whitelist {
 }
 
 impl Whitelist {
+  /// Create a default whitelist.
   pub fn new() -> Self {
-    Self {
-      maintainers: vec![UserId(649191333)],
-      admins: Vec::new(),
-      groups: vec![ChatId(649191333)],
-    }
+    Self::default()
   }
 
   /// Test if the user is one of the maintainers or admins.
+  #[inline]
   pub fn has_access(&self, user: UserId) -> bool {
-    self.maintainers.iter().any(|&id| id == user) || self.admins.iter().any(|&id| id == user)
+    self.is_maintainers(user) || self.admins.iter().any(|&id| id == user)
   }
 
-  pub fn is_maintainers(&self, user: u64) -> bool {
-    let user = UserId(user);
+  /// Test if the user is one of the maintainers
+  #[inline]
+  pub fn is_maintainers(&self, user: UserId) -> bool {
     self.maintainers.iter().any(|&id| id == user)
   }
 
+  #[inline]
   fn env_to_num_collect<T: FromStr>(k: &str) -> Option<Vec<T>>
   where
     <T as FromStr>::Err: Debug,
@@ -131,7 +125,7 @@ impl Whitelist {
         self
           .admins
           .iter()
-          .map(|x| format!("{x}"))
+          .map(|x| x.to_string())
           .collect::<Vec<String>>()
           .join(",")
       ),
@@ -140,7 +134,7 @@ impl Whitelist {
         self
           .groups
           .iter()
-          .map(|x| format!("{x}"))
+          .map(|x| x.to_string())
           .collect::<Vec<String>>()
           .join(",")
       ),
@@ -149,7 +143,7 @@ impl Whitelist {
         self
           .maintainers
           .iter()
-          .map(|x| format!("{x}"))
+          .map(|x| x.to_string())
           .collect::<Vec<String>>()
           .join(",")
       ),
@@ -163,7 +157,7 @@ impl Whitelist {
 /// BotRuntime is a memory storage for running the bot.
 pub struct BotRuntime {
   pub whitelist: Arc<RwLock<Whitelist>>,
-  shutdown_sig: Arc<broadcast::Sender<u8>>,
+  shutdown_sig: watch::Receiver<u8>,
   pub task_pool: TaskPool,
 }
 
@@ -171,7 +165,7 @@ impl Clone for BotRuntime {
   fn clone(&self) -> Self {
     Self {
       whitelist: Arc::clone(&self.whitelist),
-      shutdown_sig: Arc::clone(&self.shutdown_sig),
+      shutdown_sig: self.shutdown_sig.clone(),
       task_pool: self.task_pool.clone(),
     }
   }
@@ -186,18 +180,26 @@ impl BotRuntime {
 
   /// Create a new runtime with activated bot and bot username.
   pub fn new(bot: AutoSend<Bot>) -> Self {
-    let (tx, _) = broadcast::channel(5);
+    let (tx, rx) = watch::channel(0);
+
+    tokio::spawn(async move {
+      tokio::signal::ctrl_c()
+        .await
+        .expect("Fail to listen ctrl c signal, do you running this program in Linux?");
+
+      tx.send(1).expect("Fail to send shutdown signal");
+    });
 
     Self {
       whitelist: Arc::new(RwLock::new(Whitelist::new())),
-      shutdown_sig: Arc::new(tx),
+      shutdown_sig: rx,
       task_pool: TaskPool::new(bot),
     }
   }
 
   /// Subscribe a signal to know if the BotRuntime get shutdown
-  pub fn subscribe_shut_sig(&self) -> broadcast::Receiver<u8> {
-    self.shutdown_sig.subscribe()
+  pub fn subscribe_shutdown_sig(&self) -> watch::Receiver<u8> {
+    self.shutdown_sig.clone()
   }
 
   pub fn whitelist(mut self, wt: Whitelist) -> Self {
@@ -243,6 +245,7 @@ impl BotRuntime {
   }
 
   pub async fn save_whitelist(&self) -> Result<()> {
+    // take a copy then save it
     let wt = self.copy_whitelist();
     wt.save().await
   }
