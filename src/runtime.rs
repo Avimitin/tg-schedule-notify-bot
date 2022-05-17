@@ -1,14 +1,17 @@
-use std::env::var;
-use std::fmt::Debug;
-use std::str::FromStr;
 use crate::schedule::TaskPool;
 use anyhow::Result;
 use parking_lot::RwLock;
 use std::sync::Arc;
-use teloxide::prelude::*;
-use teloxide::types::{ChatId, UserId};
-use tokio::fs;
-use tokio::sync::broadcast;
+use std::{
+  env::var,
+  fmt::{Debug, Display},
+  str::FromStr,
+};
+use teloxide::{
+  prelude::*,
+  types::{ChatId, UserId},
+};
+use tokio::{fs, sync::broadcast};
 
 /// Whitelist store context for authorization
 #[derive(Clone, Debug)]
@@ -24,6 +27,33 @@ pub struct Whitelist {
 impl Default for Whitelist {
   fn default() -> Self {
     Self::new()
+  }
+}
+
+impl Display for Whitelist {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(
+      f,
+      "Maintainers: {} || Admins: {} || Groups: {}",
+      self
+        .maintainers
+        .iter()
+        .map(|x| x.0.to_string())
+        .collect::<Vec<String>>()
+        .join(","),
+      self
+        .admins
+        .iter()
+        .map(|x| x.0.to_string())
+        .collect::<Vec<String>>()
+        .join(","),
+      self
+        .groups
+        .iter()
+        .map(|x| x.0.to_string())
+        .collect::<Vec<String>>()
+        .join(","),
+    )
   }
 }
 
