@@ -316,6 +316,10 @@ async fn button_callback_handler(
     .chat
     .id;
 
+  // We will use interval number as minute in release build
+  #[cfg(not(debug_assertions))]
+  let interval = interval * 60;
+
   match data.as_str() {
     "add_task_confirm_y" => {
       let task = ScheduleTask::new(rt.subscribe_shutdown_sig())
