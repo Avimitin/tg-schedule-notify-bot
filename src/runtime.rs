@@ -1,3 +1,6 @@
+use std::env::var;
+use std::fmt::Debug;
+use std::str::FromStr;
 use crate::schedule::TaskPool;
 use anyhow::Result;
 use parking_lot::RwLock;
@@ -43,18 +46,45 @@ impl Whitelist {
     self.maintainers.iter().any(|&id| id == user)
   }
 
-  pub fn maintainers(mut self, m: Vec<u64>) -> Self {
-    self.maintainers = m.iter().map(|x| UserId(*x)).collect();
+  fn env_to_num_collect<T: FromStr>(k: &str) -> Option<Vec<T>>
+  where
+    <T as FromStr>::Err: Debug,
+  {
+    if let Ok(val) = var(k) {
+      let val = val
+        .split(',')
+        .map(|x| {
+          x.trim()
+            .parse::<T>()
+            .expect(format!("{x} is not a valid number").as_str())
+        })
+        .collect::<Vec<T>>();
+      Some(val)
+    } else {
+      None
+    }
+  }
+
+  // Expect: `export NOTIFY_BOT_MAINTAINERS="123,456,789"`
+  pub fn parse_maintainers(mut self) -> Self {
+    if let Some(m) = Self::env_to_num_collect("NOTIFY_BOT_MAINTAINERS") {
+      self.maintainers = m.iter().map(|x| UserId(*x)).collect();
+    }
+
     self
   }
 
-  pub fn admins(mut self, m: Vec<u64>) -> Self {
-    self.admins = m.iter().map(|x| UserId(*x)).collect();
+  pub fn parse_admins(mut self) -> Self {
+    if let Some(a) = Self::env_to_num_collect("NOTIFY_BOT_ADMINS") {
+      self.admins = a.iter().map(|x| UserId(*x)).collect();
+    }
     self
   }
 
-  pub fn groups(mut self, g: Vec<i64>) -> Self {
-    self.groups = g.iter().map(|x| ChatId(*x)).collect();
+  pub fn parse_groups(mut self) -> Self {
+    if let Some(g) = Self::env_to_num_collect("NOTIFY_BOT_GROUPS") {
+      self.groups = g.iter().map(|x| ChatId(*x)).collect();
+    }
     self
   }
 

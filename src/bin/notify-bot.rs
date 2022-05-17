@@ -1,5 +1,5 @@
 use anyhow::Result;
-use notify_bot::{handler::*, BotRuntime, Config, Whitelist};
+use notify_bot::{handler::*, BotRuntime, Whitelist};
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*};
 use tracing::info;
 
@@ -15,15 +15,11 @@ async fn main() -> Result<()> {
   info!("Bot {} start running", username);
 
   info!("Parsing config...");
-  let cfg = Config::new()
-    .parse_admins()
-    .parse_maintainers()
-    .parse_groups();
 
   let whitelist = Whitelist::new()
-    .maintainers(cfg.maintainers)
-    .admins(cfg.admins)
-    .groups(cfg.groups);
+    .parse_admins()
+    .parse_groups()
+    .parse_maintainers();
 
   info!("Bot start with maintainers: {:#?}", &whitelist);
   // setup bot runtime
